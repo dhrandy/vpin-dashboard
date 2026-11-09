@@ -247,6 +247,7 @@ def library_payload():
             if as_play_count(g.get("numberPlayed")) is not None
             else ex.get("playCount"),
             "addedAt": pick(g, "dateAdded"),
+            "mediaRevision": str(g.get("modified") or ex.get("modifiedAt") or ""),
         })
     for game_id, ex in export.items():
         if game_id in seen:
@@ -262,6 +263,7 @@ def library_payload():
             "lastPlayedAt": ex.get("lastPlayedAt"),
             "playCount": ex.get("playCount"),
             "addedAt": ex.get("modifiedAt"),
+            "mediaRevision": str(ex.get("modifiedAt") or ""),
         })
 
     scores = []
@@ -330,7 +332,7 @@ _thumb_failures = {}
 _thumb_lock = threading.Lock()
 
 
-def fetch_thumb(game_id):
+def fetch_thumb(game_id, force_source=False):
     """(card, detail) for a cached playfield picture, or (None, None).
 
     Each entry is (content_type, path): card is a small JPEG for the
@@ -360,7 +362,7 @@ def fetch_thumb(game_id):
             return None, None
         try:
             legacy = os.path.join(THUMB_ROOT, f"{game_id}.img")
-            if os.path.isfile(legacy) and os.path.getsize(legacy) > 1000:
+            if not force_source and os.path.isfile(legacy) and os.path.getsize(legacy) > 1000:
                 with open(legacy, "rb") as f:
                     data = f.read()
                 ctype = "image/legacy"
@@ -443,6 +445,72 @@ def _store_normalized(card_path, detail_path, data):
 
 
 
+_cache_state_lock = threading.Lock()
+_cache_state = {"running": False, "done": 0, "total": 0, "failed": 0, "paused": False}
+
+
+def start_thumb_cache(tables):
+    with _cache_state_lock:
+        if _cache_state["running"]:
+            return dict(_cache_state)
+        _cache_state.update(running=True, done=0, total=len(tables), failed=0, paused=False)
+    threading.Thread(target=_warm_thumbs, args=(tables,), daemon=True).start()
+    return dict(_cache_state)
+
+
+def _warm_thumbs(tables):
+    try:
+        os.makedirs(THUMB_DIR, exist_ok=True)
+        for table in tables:
+            game_id = table["gameId"]
+            revision = str(table.get("mediaRevision") or "")
+            stamp = os.path.join(THUMB_DIR, f"{game_id}.revision.json")
+            old = None
+            try:
+                with open(stamp) as f:
+                    old = json.load(f)
+            except (OSError, ValueError):
+                pass
+            card = os.path.join(THUMB_DIR, f"{game_id}.jpg")
+            detail = os.path.join(THUMB_DIR, f"{game_id}-large.jpg")
+            changed = old is not None and old != revision
+            cached = _thumb_cache_hit(card, detail)
+            if changed or not cached:
+                # Status must be known idle before any uncached upstream work.
+                while True:
+                    try:
+                        status = bridge("GET", "/api/status")
+                        idle = isinstance(status, dict) and "gameId" in status and int(status["gameId"]) <= 0
+                    except Exception:
+                        idle = False
+                    with _cache_state_lock:
+                        _cache_state["paused"] = not idle
+                    if idle:
+                        break
+                    time.sleep(10)
+                if changed:
+                    with _thumb_lock:
+                        for path in (card, detail):
+                            try:
+                                os.remove(path)
+                            except FileNotFoundError:
+                                pass
+                        _thumb_failures.pop(game_id, None)
+                cached = fetch_thumb(game_id, force_source=changed)
+            success = bool(cached and cached[0])
+            if success:
+                with open(stamp + ".tmp", "w") as f:
+                    json.dump(revision, f)
+                os.replace(stamp + ".tmp", stamp)
+            with _cache_state_lock:
+                _cache_state["done"] += 1
+                _cache_state["failed"] += not success
+            time.sleep(.25)
+    finally:
+        with _cache_state_lock:
+            _cache_state.update(running=False, paused=False)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -485,6 +553,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             return self._send_html(os.path.join(HERE, "index.html"))
         try:
+            if path == "/api/cache-thumbs":
+                with _cache_state_lock:
+                    return self._send(200, dict(_cache_state))
             if path == "/api/library":
                 return self._send(200, library_payload())
             if path == "/api/status":
@@ -530,6 +601,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/cache-thumbs":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length > 200000:
+                    return self._send(413, {"ok": False, "error": "cache request too large"})
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                tables = body.get("tables")
+                if not isinstance(tables, list) or len(tables) > 10000:
+                    raise ValueError()
+                items = [{"gameId": int(t["gameId"]), "mediaRevision": str(t.get("mediaRevision") or "")[:200]} for t in tables]
+                if any(t["gameId"] <= 0 for t in items):
+                    raise ValueError()
+                return self._send(202, start_thumb_cache(items))
+            except (ValueError, KeyError, TypeError):
+                return self._send(400, {"ok": False, "error": "valid table list required"})
         if path != "/api/play":
             return self._send(404, {"ok": False, "error": "not found"})
         try:
