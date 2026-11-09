@@ -31,12 +31,10 @@ const COMPOSE_YAML = `services:
       # in the repo or in this file.
       # VPIN_BRIDGE_URL is your vpin-bridge address on your network.
       # VPIN_API_KEY is the same key the bridge uses (its API_KEY).
-      # GITHUB_TOKEN lets the container pull the app files from the
-      # private dhrandy/vpin-dashboard repo: a fine-grained token
-      # with read-only Contents access to that one repo is enough.
+      # The app files come from the public dhrandy/vpin-dashboard
+      # repo, which clones with no token or sign-in.
       VPIN_BRIDGE_URL: \${VPIN_BRIDGE_URL}
       VPIN_API_KEY: \${VPIN_API_KEY}
-      GITHUB_TOKEN: \${GITHUB_TOKEN:-}
       GIT_REPO: \${GIT_REPO:-https://github.com/dhrandy/vpin-dashboard.git}
       GIT_BRANCH: \${GIT_BRANCH:-main}
       PORT: "8080"
@@ -59,9 +57,6 @@ const COMPOSE_YAML = `services:
         if [ -z "$$BRANCH" ]; then BRANCH=main; fi
         REPO="$$GIT_REPO"
         if [ -z "$$REPO" ]; then REPO="https://github.com/dhrandy/vpin-dashboard.git"; fi
-        if [ -n "$$GITHUB_TOKEN" ]; then
-          REPO="https://x-access-token:$$GITHUB_TOKEN@github.com/dhrandy/vpin-dashboard.git"
-        fi
         if [ -d /code/.git ]; then
           echo "vpin-dashboard: pulling the latest app files from GitHub..."
           git -C /code remote set-url origin "$$REPO" || true
@@ -78,7 +73,7 @@ const COMPOSE_YAML = `services:
             cp -a /tmp/vpin-clone/. /code/
             rm -rf /tmp/vpin-clone
           else
-            echo "vpin-dashboard: could not pull the files from GitHub. The repo is private, so set GITHUB_TOKEN in Dockhand Environment to a read-only token for it, then restart the stack." >&2
+            echo "vpin-dashboard: could not pull the files from GitHub. Check that the NAS can reach GitHub, then restart the stack." >&2
             exit 1
           fi
         fi
@@ -1018,7 +1013,7 @@ function SelfHostView() {
     <div className="mx-auto max-w-3xl">
       <h2 className="font-display text-3xl font-semibold tracking-wide uppercase">Run it on your NAS</h2>
       <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--dim)" }}>
-        This same library and stats app ships as a self-hosted package in the private GitHub repo dhrandy/vpin-dashboard.
+        This same library and stats app ships as a self-hosted package in the GitHub repo dhrandy/vpin-dashboard.
         The Docker stack pulls all the files itself: on first start the container clones the repo, and on every
         restart it pulls the latest files before the server starts, so nothing is ever copied to the NAS by hand.
         On the NAS it runs under Dockhand like your other apps, talks straight to your vpin bridge, and Play
@@ -1027,7 +1022,7 @@ function SelfHostView() {
       <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm leading-relaxed">
         <li>Create the stack in Dockhand from the compose file below. That is the only file you handle.</li>
         <li>In Dockhand Environment, set <code>VPIN_BRIDGE_URL</code> to your vpin-bridge address and <code>VPIN_API_KEY</code> to the same key the bridge uses.</li>
-        <li>Also set <code>GITHUB_TOKEN</code> to a GitHub fine-grained token with read-only Contents access to the private dhrandy/vpin-dashboard repo, so the container can pull the app files itself. None of these values are stored in the repo or this page.</li>
+        <li>The repo is public, so the container pulls the app files itself with no GitHub token or sign-in. None of the values above are stored in the repo or this page.</li>
         <li>Start the stack. The container pulls the app files from GitHub on its own, then open the app on port 8746.</li>
         <li>To update later, just restart the stack: it pulls the newest files first, no rebuild and no copying. An older manual install keeps running as-is; empty the <code>app</code> folder and restart once to switch it to automatic pulls.</li>
       </ol>
