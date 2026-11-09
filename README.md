@@ -35,17 +35,37 @@ cabinet running VPin Studio, reached through a vpin-bridge.
   environment and are not stored in this repo.
 - `docker-compose.yml` — Dockhand/CasaOS-style stack: official
   Python image, no Dockerfile, host-path volumes under
-  `/DATA/AppData/vpin-dashboard`.
+  `/DATA/AppData/vpin-dashboard`. The container pulls the repo
+  files itself (clone on first start, pull on every restart), so
+  no app files are copied by hand.
 
 ## Deploy on the NAS (Dockhand)
 
-1. Copy `app/` to `/DATA/AppData/vpin-dashboard/app` on the NAS.
-2. Create a stack in Dockhand from `docker-compose.yml`.
-3. In Dockhand Environment, set:
+The compose file is the only file you handle; the Docker stack
+pulls everything else from this repo on its own.
+
+1. Create a stack in Dockhand from `docker-compose.yml`.
+2. In Dockhand Environment, set:
    - `VPIN_BRIDGE_URL` — the vpin-bridge address on your network.
    - `VPIN_API_KEY` — the same key the bridge uses (its `API_KEY`).
-   Neither value is stored in this repo.
-4. Start the stack and open the dashboard on port 8745.
+   - `GITHUB_TOKEN` — a GitHub fine-grained token with read-only
+     Contents access to this private repo, so the container can
+     pull the app files itself.
+   None of these values are stored in this repo.
+3. Start the stack and open the dashboard on port 8745. On first
+   start the container clones the repo into
+   `/DATA/AppData/vpin-dashboard/app` on the NAS, then runs
+   `app/server.py` from that checkout.
+
+## Updates
+
+Restart the stack. On every start the container pulls the latest
+files from GitHub first, then starts the server with the new
+code: no rebuild, no file copying. If a pull fails (for example
+the NAS is offline), it starts with the files it already has. An
+older manual install (files copied in by hand, no git checkout)
+keeps running as-is; empty the `app` folder and restart once to
+switch it to automatic pulls.
 
 ## How it gets data
 
