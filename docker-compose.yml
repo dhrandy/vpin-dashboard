@@ -4,7 +4,7 @@ services:
     container_name: vpin-dashboard
     restart: unless-stopped
     ports:
-      - "8745:8080"
+      - "8746:8080"
     environment:
       # Set these in Dockhand Environment. None of them are stored
       # in the repo or in this file.
