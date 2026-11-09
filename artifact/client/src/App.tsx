@@ -25,7 +25,7 @@ const COMPOSE_YAML = `services:
     container_name: vpin-dashboard
     restart: unless-stopped
     ports:
-      - "8745:8080"
+      - "8746:8080"
     environment:
       # Set these in Dockhand Environment. None of them are stored
       # in the repo or in this file.
@@ -1028,7 +1028,7 @@ function SelfHostView() {
         <li>Create the stack in Dockhand from the compose file below. That is the only file you handle.</li>
         <li>In Dockhand Environment, set <code>VPIN_BRIDGE_URL</code> to your vpin-bridge address and <code>VPIN_API_KEY</code> to the same key the bridge uses.</li>
         <li>Also set <code>GITHUB_TOKEN</code> to a GitHub fine-grained token with read-only Contents access to the private dhrandy/vpin-dashboard repo, so the container can pull the app files itself. None of these values are stored in the repo or this page.</li>
-        <li>Start the stack. The container pulls the app files from GitHub on its own, then open the app on port 8745.</li>
+        <li>Start the stack. The container pulls the app files from GitHub on its own, then open the app on port 8746.</li>
         <li>To update later, just restart the stack: it pulls the newest files first, no rebuild and no copying. An older manual install keeps running as-is; empty the <code>app</code> folder and restart once to switch it to automatic pulls.</li>
       </ol>
       <div className="mt-5 overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
