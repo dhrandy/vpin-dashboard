@@ -13,6 +13,15 @@
 // Studio on the cabinet (GET /api/v1/frontend/launch/<gameId>), so
 // the game launches on the cabinet itself; this app only triggers
 // it. The bridge refuses with 409 when a game is already playing.
+//
+// Playfield pictures: the vpin bridge serves JSON only, never image
+// bytes, so thumbnails arrive through the PC bridge that runs on
+// the cabinet itself: a background task locates each table's
+// PlayField media file on the cabinet, downscales it to a small
+// JPEG inside the PC bridge workspace, reads it back (binary files
+// return base64), and stores it through saveTableThumbs. The bytes
+// live in blob storage; getLibrary hands out blob URLs. No wheel
+// images are fetched or shown, per the user's call.
 
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
 import { asc, eq } from "drizzle-orm";
@@ -20,9 +29,12 @@ import * as schema from "./schema";
 
 const VPIN_CLI =
   "PYTHONPATH=/opt/muse/skills/custom-connector-setup/bin ~/workspace/custom-skills/local-vpin-bridge/bin/vpin";
+const PCBRIDGE_CLI =
+  "PC_BRIDGE_URL=${PC_BRIDGE_URL} PYTHONPATH=/opt/muse/skills/custom-connector-setup/bin ~/workspace/custom-skills/local-pc-bridge/bin/pcbridge";
 const SYNC_STALE_MS = 30 * 1000;
 const STATUS_STALE_MS = 20 * 1000;
 const DETAIL_STALE_MS = 10 * 60 * 1000;
+const THUMB_STALE_MS = 10 * 60 * 1000;
 
 const okResponse = z.object({ ok: z.boolean() });
 
@@ -33,6 +45,8 @@ const syncShape = z.object({
   lastError: z.string().nullable(),
   tableCount: z.number(),
   scoreCount: z.number(),
+  lastAddedTables: z.number(),
+  lastAddedScores: z.number(),
 });
 
 const statusShape = z.object({
@@ -67,6 +81,8 @@ function toSyncInfo(
       lastError: null,
       tableCount: 0,
       scoreCount: 0,
+      lastAddedTables: 0,
+      lastAddedScores: 0,
     };
   }
   return {
@@ -76,6 +92,8 @@ function toSyncInfo(
     lastError: row.lastError,
     tableCount: row.tableCount,
     scoreCount: row.scoreCount,
+    lastAddedTables: row.lastAddedTables,
+    lastAddedScores: row.lastAddedScores,
   };
 }
 
@@ -166,7 +184,7 @@ async function spawnBridgeSync(ctx: Ctx, force: boolean): Promise<void> {
         `Step 3: run ${VPIN_CLI} playlists . It prints a JSON array of playlist objects. ` +
         `Step 4: run ${VPIN_CLI} highscores . It prints one JSON object: either {"ok": true, "highscores": [{"gameId": 1, "text": "<table name>", "score": 123, "playerInitials": "SRG"}, ...]}, or {"ok": true, "raw": "<full semicolon export text>"}, or it fails with an HTTP error. ` +
         "Then call this artifact's saveBridgeSync action exactly once with: " +
-        "games = one entry per distinct table, merging steps 1 and 2: gameId = the numeric id, name = gameDisplayName or the list name, maker = the manufacturer/vendor field when the game object has one (otherwise null), year = the numeric year/releaseYear field when present (otherwise null), rawJson = JSON.stringify of the full game object truncated to 3000 characters (null when step 2 gave no object for that table). Use step 1 alone when step 2 failed. " +
+        "games = one entry per distinct table, merging steps 1 and 2: gameId = the numeric id, name = gameDisplayName or the list name, maker = the manufacturer/vendor field when the game object has one (otherwise null), year = the numeric year/releaseYear field when present (otherwise null), rawJson = JSON.stringify of the full game object truncated to 3000 characters (null when step 2 gave no object for that table), lastPlayedAt = the game object's last-played date/time field (names vary: lastPlayed, lastPlayedDate, playedAt) as an ISO string when present (otherwise null), addedAt = the game object's date-added field (names vary: dateAdded, addedAt, createdAt, modified) as an ISO string when present (otherwise null), features = an object {b2s, rom, colorDmd, pup} of booleans derived ONLY from signals actually present in that table's game object: b2s = a directb2s/backglass file or flag is present, rom = a ROM name (romName, rom, gameRom) is non-empty, colorDmd = altcolor / color DMD files or flags are present, pup = a PuP pack is present; when the game object carries none of these signals, pass features = null rather than guessing. Use step 1 alone when step 2 failed (features, lastPlayedAt and addedAt all null then). " +
         "playlists = step 3 reshaped to [{playlistId: <numeric id>, name: <name>, gameIds: [<numeric game ids from the playlist's games/gameIds members, empty array when none are listed>]}] (empty array when step 3 failed). " +
         "entries = when step 4 printed ok:true with a highscores array, that array reshaped to [{gameId, score, initials: playerInitials or null, text}]; otherwise an empty array. " +
         "raw = when step 4 printed ok:true with raw text, that exact text; otherwise null. " +
@@ -228,10 +246,11 @@ function parseJsonObject(text: string | null): Record<string, unknown> | null {
 function mediaScreens(mediaJson: string | null): string[] {
   if (!mediaJson) return [];
   const found = new Set<string>();
+  // Wheel is intentionally not listed: the user does not want
+  // wheel pictures or wheel callouts anywhere in this app.
   const known = [
     "PlayField",
     "BackGlass",
-    "Wheel",
     "Topper",
     "DMD",
     "GameInfo",
@@ -244,6 +263,92 @@ function mediaScreens(mediaJson: string | null): string[] {
     if (mediaJson.toLowerCase().includes(name.toLowerCase())) found.add(name);
   }
   return [...found];
+}
+
+type TableFeatures = {
+  b2s: boolean;
+  rom: boolean;
+  colorDmd: boolean;
+  pup: boolean;
+};
+
+const featuresShape = z.object({
+  b2s: z.boolean(),
+  rom: z.boolean(),
+  colorDmd: z.boolean(),
+  pup: z.boolean(),
+});
+
+function parseFeatures(json: string | null): TableFeatures | null {
+  const obj = parseJsonObject(json);
+  if (!obj) return null;
+  return {
+    b2s: obj.b2s === true,
+    rom: obj.rom === true,
+    colorDmd: obj.colorDmd === true,
+    pup: obj.pup === true,
+  };
+}
+
+// A feature once confirmed by any cabinet payload stays confirmed;
+// later payloads can only add flags, never clear them.
+function mergeFeatures(
+  currentJson: string | null,
+  incoming: TableFeatures | null,
+): string | null {
+  if (!incoming) return currentJson;
+  const cur = parseFeatures(currentJson) ?? {
+    b2s: false,
+    rom: false,
+    colorDmd: false,
+    pup: false,
+  };
+  const merged: TableFeatures = {
+    b2s: cur.b2s || incoming.b2s,
+    rom: cur.rom || incoming.rom,
+    colorDmd: cur.colorDmd || incoming.colorDmd,
+    pup: cur.pup || incoming.pup,
+  };
+  return JSON.stringify(merged);
+}
+
+function badgesFor(features: TableFeatures | null): string[] {
+  if (!features) return [];
+  const badges: string[] = [];
+  if (features.b2s) badges.push("B2S");
+  if (features.rom) badges.push("ROM");
+  if (features.pup) badges.push("PUP");
+  if (features.colorDmd) badges.push("Color");
+  return badges;
+}
+
+// Needs attention = the cabinet data on hand shows a gap: media is
+// known and the playfield image is missing, or the backglass is
+// known to be missing (features say no B2S, or known media has no
+// BackGlass screen). Unknown data never counts as a gap.
+function needsAttentionFor(row: {
+  featuresJson: string | null;
+  mediaJson: string | null;
+}): boolean {
+  const features = parseFeatures(row.featuresJson);
+  const screens = row.mediaJson ? mediaScreens(row.mediaJson) : null;
+  if (screens && !screens.includes("PlayField")) return true;
+  if (features && !features.b2s) return true;
+  if (screens && !screens.includes("BackGlass")) return true;
+  return false;
+}
+
+function parseDateValue(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 
 function detailFields(detailsJson: string | null): { key: string; value: string }[] {
@@ -269,7 +374,93 @@ const tableShape = z.object({
   bestInitials: z.string().nullable(),
   scoreCount: z.number(),
   playlists: z.array(z.string()),
+  badges: z.array(z.string()),
+  thumbUrl: z.string().nullable(),
+  lastPlayedAt: z.string().nullable(),
+  addedAt: z.string().nullable(),
+  needsAttention: z.boolean(),
 });
+
+type TableRow = typeof schema.tables.$inferSelect;
+
+async function toTableShape(
+  ctx: Ctx,
+  t: TableRow,
+  best: { score: number; initials: string | null } | null,
+  scoreCount: number,
+  playlistNames: string[],
+): Promise<z.infer<typeof tableShape>> {
+  let thumbUrl: string | null = null;
+  if (t.thumbBlobKey) {
+    try {
+      thumbUrl = await ctx.blobs.getUrl(t.thumbBlobKey);
+    } catch {
+      thumbUrl = null;
+    }
+  }
+  return {
+    id: t.id,
+    cabinetGameId: t.cabinetGameId,
+    name: t.name,
+    maker: t.maker,
+    year: t.year,
+    bestScore: best?.score ?? null,
+    bestInitials: best?.initials ?? null,
+    scoreCount,
+    playlists: playlistNames,
+    badges: badgesFor(parseFeatures(t.featuresJson)),
+    thumbUrl,
+    lastPlayedAt: t.lastPlayedAt?.toISOString() ?? null,
+    addedAt: t.addedAt?.toISOString() ?? null,
+    needsAttention: needsAttentionFor(t),
+  };
+}
+
+// Spawns the background thumbnail pull when some tables still
+// have no playfield picture and the last attempt is stale. The
+// task works through the PC bridge on the cabinet itself, because
+// the vpin bridge serves JSON only, never image bytes.
+async function spawnThumbSync(ctx: Ctx, force: boolean): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const syncRow = await readSyncRow(ctx);
+  if (!syncRow?.lastSuccessAt) return;
+  const now = new Date();
+  if (
+    !force &&
+    syncRow.thumbAttemptAt &&
+    now.getTime() - syncRow.thumbAttemptAt.getTime() <= THUMB_STALE_MS
+  ) {
+    return;
+  }
+  const rows = await db.select().from(schema.tables);
+  const missingRows = rows
+    .filter((t) => !t.thumbBlobKey)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 40);
+  if (missingRows.length === 0) return;
+  await db
+    .update(schema.bridgeSync)
+    .set({ thumbAttemptAt: now })
+    .where(eq(schema.bridgeSync.id, 1));
+  const list = missingRows
+    .map((t) => `${t.cabinetGameId} = ${t.name}`)
+    .join("; ");
+  try {
+    await ctx.agent.spawnTask(
+      "Fetch small playfield pictures for pinball tables from the cabinet and save them into this artifact. Work through this list of tables that still have no picture (gameId = name): " +
+        list +
+        ". For EACH table, follow these steps exactly: " +
+        `Step 1: run ${VPIN_CLI} media <gameId> . It prints a JSON description of the table's frontend media. Find the PlayField entry and note its file name (a .png or .jpg file name). If there is no PlayField entry or the command fails, skip this table. Do NOT look for or use any wheel image. ` +
+        `Step 2: check the cabinet PC bridge with: ${PCBRIDGE_CLI} health . If it fails or reports the bridge is down, stop the whole task immediately and call saveTableThumbs once with an empty items array. ` +
+        `Step 3: use ${PCBRIDGE_CLI} exec with the powershell shell to locate that PlayField file on the cabinet: search the PinUP System media folders (POPMedia) and the VPin Studio media folders recursively for the exact file name. Then, still in PowerShell with System.Drawing, load the image, scale it so its width is at most 480 pixels (keep the aspect ratio), and save it as a JPEG (quality 80) into the PC bridge workspace as thumbs/<gameId>.jpg (create the thumbs folder first). If the file cannot be found or converted, skip this table. ` +
+        `Step 4: run ${PCBRIDGE_CLI} read thumbs/<gameId>.jpg . It prints JSON whose content field holds the file base64-encoded. ` +
+        "Step 5: collect the successful tables into batches of at most 20 and call this artifact's saveTableThumbs action once per batch with items = [{gameId, dataBase64: <the base64 content>, contentType: \"image/jpeg\"}]. Call it at least once even when every table failed (items = []). Do nothing else.",
+      { expectsAction: "saveTableThumbs", dedupeKey: "thumb-sync" },
+    );
+  } catch {
+    // Thumbnails are best-effort; the grid shows placeholders meanwhile.
+  }
+}
 
 const libraryResponse = z.object({
   tables: z.array(tableShape),
@@ -290,6 +481,7 @@ export const Actions = {
     async handler(ctx): Promise<z.infer<typeof libraryResponse>> {
       await spawnBridgeSync(ctx, false);
       await spawnStatusCheck(ctx);
+      await spawnThumbSync(ctx, false);
       const db = ctx.db<typeof schema>();
       const [tableRows, scoreRows, playlistRows, syncRow, statusRow] =
         await Promise.all([
@@ -344,21 +536,20 @@ export const Actions = {
       for (const t of tableRows) {
         if (t.maker) makerCounts.set(t.maker, (makerCounts.get(t.maker) ?? 0) + 1);
       }
-      return {
-        tables: tableRows.map((t) => {
+      const tables = await Promise.all(
+        tableRows.map((t) => {
           const best = bestByTable.get(t.id);
-          return {
-            id: t.id,
-            cabinetGameId: t.cabinetGameId,
-            name: t.name,
-            maker: t.maker,
-            year: t.year,
-            bestScore: best?.score ?? null,
-            bestInitials: best?.initials ?? null,
-            scoreCount: best?.count ?? 0,
-            playlists: membership.get(t.cabinetGameId) ?? [],
-          };
+          return toTableShape(
+            ctx,
+            t,
+            best ? { score: best.score, initials: best.initials } : null,
+            best?.count ?? 0,
+            membership.get(t.cabinetGameId) ?? [],
+          );
         }),
+      );
+      return {
+        tables,
         playlists: playlistInfos,
         makers: [...makerCounts.entries()]
           .map(([maker, count]) => ({ maker, count }))
@@ -425,7 +616,7 @@ export const Actions = {
               `Run: ${VPIN_CLI} details ${args.cabinetGameId} . It prints a JSON object with the table's metadata, or fails when the cabinet is unreachable. ` +
               `Then run: ${VPIN_CLI} media ${args.cabinetGameId} . It prints a JSON value describing the table's frontend media, or fails. ` +
               "Then call this artifact's saveTableDetail action exactly once with: gameId = " +
-              `${args.cabinetGameId}, detailsJson = JSON.stringify of the details output truncated to 12000 characters (null when the command failed), mediaJson = JSON.stringify of the media output truncated to 12000 characters (null when the command failed). Do nothing else.`,
+              `${args.cabinetGameId}, detailsJson = JSON.stringify of the details output truncated to 12000 characters (null when the command failed), mediaJson = JSON.stringify of the media output truncated to 12000 characters (null when the command failed), features = an object {b2s, rom, colorDmd, pup} of booleans derived ONLY from signals actually present in those two outputs: b2s = a directb2s/backglass file is listed, rom = a ROM name is non-empty, colorDmd = altcolor / color DMD files are listed, pup = a PuP pack is listed; pass features = null when neither output carries any of these signals. Do nothing else.`,
             {
               expectsAction: "saveTableDetail",
               dedupeKey: `table-detail-${args.cabinetGameId}`,
@@ -461,17 +652,7 @@ export const Actions = {
       );
       return {
         found: true,
-        table: {
-          id: table.id,
-          cabinetGameId: table.cabinetGameId,
-          name: table.name,
-          maker: table.maker,
-          year: table.year,
-          bestScore: best?.score ?? null,
-          bestInitials: best?.initials ?? null,
-          scoreCount: scoreRows.length,
-          playlists: names,
-        },
+        table: await toTableShape(ctx, table, best, scoreRows.length, names),
         scores: scoreRows.map((s) => ({
           score: s.score,
           initials: s.initials,
@@ -493,12 +674,13 @@ export const Actions = {
       gameId: z.number().int(),
       detailsJson: z.string().max(20000).nullable(),
       mediaJson: z.string().max(20000).nullable(),
+      features: featuresShape.nullable().optional(),
     }),
     response: okResponse,
     async handler(ctx, args): Promise<z.infer<typeof okResponse>> {
       const db = ctx.db<typeof schema>();
       const rows = await db
-        .select({ id: schema.tables.id })
+        .select()
         .from(schema.tables)
         .where(eq(schema.tables.cabinetGameId, args.gameId))
         .limit(1);
@@ -509,6 +691,7 @@ export const Actions = {
           .set({
             detailsJson: args.detailsJson,
             mediaJson: args.mediaJson,
+            featuresJson: mergeFeatures(row.featuresJson, args.features ?? null),
             detailFetchedAt: new Date(),
             updatedAt: new Date(),
           })
@@ -516,6 +699,56 @@ export const Actions = {
         ctx.invalidateQueries();
       }
       return { ok: true };
+    },
+  }),
+
+  saveTableThumbs: defineAction({
+    description:
+      "Stores playfield thumbnails pulled from the cabinet through the PC bridge (called by the background thumbnail task). Each item's bytes are saved to blob storage as that table's card picture.",
+    request: z.object({
+      items: z
+        .array(
+          z.object({
+            gameId: z.number().int(),
+            dataBase64: z.string().min(1).max(1_400_000),
+            contentType: z.enum(["image/jpeg", "image/png"]),
+          }),
+        )
+        .max(20),
+    }),
+    response: z.object({ ok: z.boolean(), stored: z.number() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      let stored = 0;
+      for (const item of args.items) {
+        const rows = await db
+          .select({ id: schema.tables.id })
+          .from(schema.tables)
+          .where(eq(schema.tables.cabinetGameId, item.gameId))
+          .limit(1);
+        const row = rows[0];
+        if (!row) continue;
+        const key = `playfield-thumbs/${item.gameId}.jpg`;
+        let bytes: Uint8Array;
+        try {
+          bytes = base64ToBytes(item.dataBase64);
+        } catch {
+          continue;
+        }
+        if (bytes.length === 0) continue;
+        await ctx.blobs.put(key, bytes, { contentType: item.contentType });
+        await db
+          .update(schema.tables)
+          .set({
+            thumbBlobKey: key,
+            thumbFetchedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.tables.id, row.id));
+        stored += 1;
+      }
+      if (stored > 0) ctx.invalidateQueries();
+      return { ok: true, stored };
     },
   }),
 
@@ -642,11 +875,12 @@ export const Actions = {
 
   requestSync: defineAction({
     description:
-      "Starts a fresh library and high-score pull from the vpin bridge right away.",
+      "Starts a sync with the pinball cabinet right away: pulls the library, playlists, and high scores from the vpin bridge and saves only what the server does not already have (new or missing tables, scores, and playfield thumbnails).",
     request: z.object({}),
     response: okResponse,
     async handler(ctx): Promise<z.infer<typeof okResponse>> {
       await spawnBridgeSync(ctx, true);
+      await spawnThumbSync(ctx, true);
       ctx.invalidateQueries();
       return { ok: true };
     },
@@ -654,7 +888,7 @@ export const Actions = {
 
   saveBridgeSync: defineAction({
     description:
-      "Stores one library pull from the vpin bridge (called by the background sync task). Replaces the stored tables, playlists, and cabinet scores with the pulled set.",
+      "Stores one library pull from the vpin bridge (called by the background sync task). The save is incremental: it adds tables, playlists, and scores the server does not already have and refreshes changed entries in place; stored rows are never wiped or re-downloaded.",
     request: z.object({
       ok: z.boolean(),
       games: z
@@ -665,6 +899,9 @@ export const Actions = {
             maker: z.string().max(120).nullable(),
             year: z.number().int().min(1900).max(2100).nullable(),
             rawJson: z.string().max(4000).nullable(),
+            lastPlayedAt: z.string().max(64).nullable().optional(),
+            addedAt: z.string().max(64).nullable().optional(),
+            features: featuresShape.nullable().optional(),
           }),
         )
         .max(2000),
@@ -690,7 +927,14 @@ export const Actions = {
       raw: z.string().max(300000).nullable(),
       error: z.string().max(500).nullable(),
     }),
-    response: z.object({ ok: z.boolean(), storedTables: z.number(), storedScores: z.number() }),
+    response: z.object({
+      ok: z.boolean(),
+      storedTables: z.number(),
+      storedScores: z.number(),
+      addedTables: z.number(),
+      addedScores: z.number(),
+      addedPlaylists: z.number(),
+    }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const now = new Date();
@@ -710,7 +954,14 @@ export const Actions = {
             },
           });
         ctx.invalidateQueries();
-        return { ok: false, storedTables: 0, storedScores: 0 };
+        return {
+          ok: false,
+          storedTables: 0,
+          storedScores: 0,
+          addedTables: 0,
+          addedScores: 0,
+          addedPlaylists: 0,
+        };
       }
 
       // Merge score sources: parsed entries (top score per table)
@@ -741,6 +992,10 @@ export const Actions = {
         if (seenGames.has(g.gameId)) continue;
         seenGames.add(g.gameId);
         const cur = existingByGame.get(g.gameId);
+        const featuresJson = mergeFeatures(
+          cur?.featuresJson ?? null,
+          g.features ?? null,
+        );
         if (cur) {
           await db
             .update(schema.tables)
@@ -749,6 +1004,10 @@ export const Actions = {
               maker: g.maker ?? cur.maker,
               year: g.year ?? cur.year,
               rawJson: g.rawJson ?? cur.rawJson,
+              featuresJson,
+              lastPlayedAt:
+                parseDateValue(g.lastPlayedAt) ?? cur.lastPlayedAt,
+              addedAt: parseDateValue(g.addedAt) ?? cur.addedAt,
               updatedAt: now,
             })
             .where(eq(schema.tables.id, cur.id));
@@ -759,47 +1018,90 @@ export const Actions = {
             maker: g.maker,
             year: g.year,
             rawJson: g.rawJson,
+            featuresJson,
+            lastPlayedAt: parseDateValue(g.lastPlayedAt),
+            addedAt: parseDateValue(g.addedAt),
             createdAt: now,
             updatedAt: now,
           });
         }
       }
-      // Tables the cabinet no longer reports are removed with their scores.
-      for (const t of existing) {
-        if (args.games.length > 0 && !seenGames.has(t.cabinetGameId)) {
-          await db.delete(schema.scores).where(eq(schema.scores.tableId, t.id));
-          await db.delete(schema.tables).where(eq(schema.tables.id, t.id));
-        }
-      }
+      // Incremental save: a sync only adds what the server does
+      // not already have. Tables the cabinet no longer reports are
+      // kept with their scores and pictures; nothing already saved
+      // is deleted or re-downloaded.
+      const addedTables = [...seenGames].filter(
+        (id) => !existingByGame.has(id),
+      ).length;
 
-      // Replace playlists wholesale.
-      await db.delete(schema.playlists);
+      // Playlists upsert by cabinet playlist id: new ones are
+      // added, existing ones pick up the cabinet's current
+      // membership, and saved playlists are never deleted.
+      const existingPlaylists = await db.select().from(schema.playlists);
+      const existingPlaylistIds = new Set(
+        existingPlaylists.map((p) => p.id),
+      );
+      let addedPlaylists = 0;
       for (const p of args.playlists) {
-        await db.insert(schema.playlists).values({
-          id: p.playlistId,
-          name: p.name,
-          gameIdsJson: JSON.stringify(p.gameIds),
-        });
+        if (!existingPlaylistIds.has(p.playlistId)) addedPlaylists += 1;
+        await db
+          .insert(schema.playlists)
+          .values({
+            id: p.playlistId,
+            name: p.name,
+            gameIdsJson: JSON.stringify(p.gameIds),
+          })
+          .onConflictDoUpdate({
+            target: schema.playlists.id,
+            set: {
+              name: p.name,
+              gameIdsJson: JSON.stringify(p.gameIds),
+            },
+          });
       }
 
-      // Replace scores wholesale from the pull, for known tables only.
+      // Scores merge incrementally, keyed by table + rank slot:
+      // a slot already holding the same score and initials is
+      // left untouched, a slot whose score changed on the cabinet
+      // is updated in place (that change is the new info), and a
+      // slot the server does not have yet is inserted. Scores for
+      // tables outside this pull are never touched.
       const fresh = await db.select().from(schema.tables);
       const tableIdByGame = new Map(fresh.map((t) => [t.cabinetGameId, t.id]));
-      await db.delete(schema.scores);
-      let storedScores = 0;
+      const existingScores = await db.select().from(schema.scores);
+      const scoreBySlot = new Map(
+        existingScores.map((s) => [`${s.tableId}:${s.rank}`, s]),
+      );
+      let insertedScores = 0;
+      let changedScores = 0;
       for (const e of entries) {
         const tableId = tableIdByGame.get(e.gameId);
         if (tableId === undefined) continue;
-        await db.insert(schema.scores).values({
-          tableId,
-          cabinetGameId: e.gameId,
-          score: e.score,
-          initials: e.initials,
-          rank: e.rank,
-          createdAt: now,
-        });
-        storedScores += 1;
+        const cur = scoreBySlot.get(`${tableId}:${e.rank}`);
+        if (cur) {
+          if (cur.score === e.score && (cur.initials ?? null) === e.initials) {
+            continue;
+          }
+          await db
+            .update(schema.scores)
+            .set({ score: e.score, initials: e.initials })
+            .where(eq(schema.scores.id, cur.id));
+          changedScores += 1;
+        } else {
+          await db.insert(schema.scores).values({
+            tableId,
+            cabinetGameId: e.gameId,
+            score: e.score,
+            initials: e.initials,
+            rank: e.rank,
+            createdAt: now,
+          });
+          insertedScores += 1;
+        }
       }
+      const addedScores = insertedScores + changedScores;
+      const totalTables = existing.length + addedTables;
+      const totalScores = existingScores.length + insertedScores;
 
       await db
         .insert(schema.bridgeSync)
@@ -808,8 +1110,10 @@ export const Actions = {
           lastAttemptAt: now,
           lastSuccessAt: now,
           lastError: null,
-          tableCount: seenGames.size,
-          scoreCount: storedScores,
+          tableCount: totalTables,
+          scoreCount: totalScores,
+          lastAddedTables: addedTables,
+          lastAddedScores: addedScores,
         })
         .onConflictDoUpdate({
           target: schema.bridgeSync.id,
@@ -817,12 +1121,21 @@ export const Actions = {
             lastAttemptAt: now,
             lastSuccessAt: now,
             lastError: null,
-            tableCount: seenGames.size,
-            scoreCount: storedScores,
+            tableCount: totalTables,
+            scoreCount: totalScores,
+            lastAddedTables: addedTables,
+            lastAddedScores: addedScores,
           },
         });
       ctx.invalidateQueries();
-      return { ok: true, storedTables: seenGames.size, storedScores };
+      return {
+        ok: true,
+        storedTables: totalTables,
+        storedScores: totalScores,
+        addedTables,
+        addedScores,
+        addedPlaylists,
+      };
     },
   }),
 
