@@ -6,9 +6,21 @@
 // game object (truncated) so nothing the cabinet reported is lost.
 // details_json / media_json hold the per-table responses from
 // `vpin details` / `vpin media`, fetched on demand.
+// features_json holds {b2s, rom, colorDmd, pup} booleans derived
+// from the cabinet payloads (drives the B2S / ROM / Color / PUP
+// badges and the Needs attention category). last_played_at and
+// added_at come from the games payload when it carries them.
+// thumb_blob_key points at the table's playfield thumbnail in
+// blob storage (a small JPEG pulled from the cabinet's own
+// playfield media); thumb_fetched_at stamps the last fetch.
 // scores: high-score entries pulled from the cabinet export. The
 // bridge's parsed form carries the top score per table; the raw
 // semicolon export carries up to 10 per table (rank = slot).
+// Syncs save incrementally: a pull only adds tables, playlists,
+// scores, and thumbnails the server does not already have (keyed
+// by table + rank slot for scores); rows already saved are never
+// wiped or re-downloaded. bridge_sync.last_added_* counts what
+// the most recent successful pull actually added.
 // playlists: cabinet playlists with their member game ids as JSON.
 // bridge_sync / cabinet_status: single-row (id = 1) caches of the
 // latest bridge pull and cabinet health reading.
@@ -26,6 +38,11 @@ export const tables = sqliteTable("tables", {
   rawJson: text("raw_json"),
   detailsJson: text("details_json"),
   mediaJson: text("media_json"),
+  featuresJson: text("features_json"),
+  lastPlayedAt: integer("last_played_at", { mode: "timestamp_ms" }),
+  addedAt: integer("added_at", { mode: "timestamp_ms" }),
+  thumbBlobKey: text("thumb_blob_key"),
+  thumbFetchedAt: integer("thumb_fetched_at", { mode: "timestamp_ms" }),
   detailFetchedAt: integer("detail_fetched_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -61,6 +78,9 @@ export const bridgeSync = sqliteTable("bridge_sync", {
   lastError: text("last_error"),
   tableCount: integer("table_count").notNull().default(0),
   scoreCount: integer("score_count").notNull().default(0),
+  lastAddedTables: integer("last_added_tables").notNull().default(0),
+  lastAddedScores: integer("last_added_scores").notNull().default(0),
+  thumbAttemptAt: integer("thumb_attempt_at", { mode: "timestamp_ms" }),
 });
 
 export const cabinetStatus = sqliteTable("cabinet_status", {
