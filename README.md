@@ -48,6 +48,12 @@ pulls everything else from this repo on its own.
 2. In Dockhand Environment, set:
    - `VPIN_BRIDGE_URL` — the vpin-bridge address on your network.
    - `VPIN_API_KEY` — the same key the bridge uses (its `API_KEY`).
+   - Optional, for playfield pictures on the cards:
+     `PC_BRIDGE_URL` and `PC_BRIDGE_KEY` — the PC bridge running
+     on the cabinet PC. The app grabs a frame from each table's
+     playfield video through it and caches the pictures under
+     `/data/thumbs`. Leave them unset and the cards show no
+     picture.
    Neither value is stored in this repo. The repo is public, so the
    container pulls the app files itself with no GitHub token.
 3. Start the stack and open the dashboard on port 8746. On first
@@ -69,13 +75,24 @@ switch it to automatic pulls.
 
 The server calls the vpin bridge with the `X-Api-Key` header:
 
-- `GET /api/games/json` for the table list
+- `GET /api/games/json` for the table list and mod tags
+- `GET /api/games` for the semicolon tables export, parsed for
+  maker, year, and the B2S/ROM/PUP/Color badges (the export's
+  table-details fields are the only bridge payload that carries
+  manufacturer and gameYear; `/api/games/json` has neither)
 - `GET /api/highscores` for scores (top score per table, or the raw
   export with up to 10 scores per table)
 - `GET /api/playlists`, `GET /api/details/<id>`, `GET /api/media/<id>`
 - `GET /health` and `GET /api/status` for the cabinet status light
   and Now Playing banner
 - `POST /api/play` with `{"gameId": <id>}` to launch a table
+
+Playfield pictures (`GET /api/thumb/<id>`) come from the cabinet
+itself through the PC bridge when `PC_BRIDGE_URL` and
+`PC_BRIDGE_KEY` are set: the PlayField media on the cabinet is a
+video, so the server asks the PC bridge to grab a frame from that
+video with ffmpeg on the cabinet and reads the JPEG back. Pictures
+cache under `/data/thumbs`, so each table is fetched once.
 
 If the cabinet is off, the dashboard shows an offline state and no
 tables or scores are invented.
