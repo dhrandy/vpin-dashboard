@@ -52,7 +52,7 @@ pulls everything else from this repo on its own.
      Contents access to this private repo, so the container can
      pull the app files itself.
    None of these values are stored in this repo.
-3. Start the stack and open the dashboard on port 8745. On first
+3. Start the stack and open the dashboard on port 8746. On first
    start the container clones the repo into
    `/DATA/AppData/vpin-dashboard/app` on the NAS, then runs
    `app/server.py` from that checkout.
