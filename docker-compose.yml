@@ -10,20 +10,24 @@ services:
       # in the repo or in this file.
       # VPIN_BRIDGE_URL is your vpin-bridge address on your network.
       # VPIN_API_KEY is the same key the bridge uses (its API_KEY).
-      # PC_BRIDGE_URL and PC_BRIDGE_KEY are optional: they point
-      # at the PC bridge on the cabinet PC and are only used to
-      # fetch playfield pictures (a frame is grabbed from each
-      # table's playfield video on the cabinet). Leave them unset
-      # and the cards simply show no picture.
+      # Playfield pictures come through the bridge too; VPin Studio
+      # extracts a frame itself when a table's playfield media is
+      # a video, so nothing else is needed for the pictures.
       # The app files come from the public dhrandy/vpin-dashboard
       # repo, which clones with no token or sign-in.
       VPIN_BRIDGE_URL: ${VPIN_BRIDGE_URL}
       VPIN_API_KEY: ${VPIN_API_KEY}
-      PC_BRIDGE_URL: ${PC_BRIDGE_URL:-}
-      PC_BRIDGE_KEY: ${PC_BRIDGE_KEY:-}
-      GIT_REPO: ${GIT_REPO:-https://github.com/dhrandy/vpin-dashboard.git}
-      GIT_BRANCH: ${GIT_BRANCH:-main}
+      GIT_REPO: ${GIT_REPO}
+      GIT_BRANCH: ${GIT_BRANCH}
       PORT: "8080"
+    healthcheck:
+      # The root page is served by the app itself and does not depend
+      # on the cabinet being on, so it only fails when the app is down.
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/',timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     volumes:
       # The container pulls the repo into this folder itself: it
       # clones on first start and pulls the latest files on every
@@ -59,7 +63,7 @@ services:
             cp -a /tmp/vpin-clone/. /code/
             rm -rf /tmp/vpin-clone
           else
-            echo "vpin-dashboard: could not pull the files from GitHub. Check that the NAS can reach GitHub, then restart the stack." >&2
+            echo "vpin-dashboard: could not pull the files from GitHub. Check that the Docker host can reach GitHub, then restart the stack." >&2
             exit 1
           fi
         fi

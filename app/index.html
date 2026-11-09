@@ -11,6 +11,13 @@
     --cyan:#22d3ee; --green:#34d399; --red:#f87171;
   }
   *{box-sizing:border-box}
+  html{scrollbar-width:thin;scrollbar-color:#31496e var(--bg)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#31496e;border-radius:6px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:#3d5a86}
+  ::-webkit-scrollbar-button{display:none}
+  ::-webkit-scrollbar-corner{background:transparent}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
   header{position:sticky;top:0;background:rgba(11,18,32,.96);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;z-index:5}
   nav{display:flex;gap:4px}
@@ -70,10 +77,10 @@
   .meta{color:var(--dim);font-size:12px;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
   .bdg{background:var(--surface2);color:var(--cyan);border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;letter-spacing:.03em}
-  .cardfoot{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;gap:8px;margin-top:auto}
-  .top{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cardfoot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;padding:8px 12px;gap:4px 8px;margin-top:auto}
+  .top{font-size:12px;color:var(--dim);flex:1 1 100%;min-width:0;line-height:1.35}
   .top b{color:var(--text);font-weight:600}
-  .play{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;flex:none}
+  .play{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;flex:none;margin-left:auto}
   .play:disabled{opacity:.4;cursor:default}
   .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   @media(min-width:900px){.tiles{grid-template-columns:repeat(4,1fr)}}
@@ -341,8 +348,8 @@ function renderLibrary() {
     <article class="card">
       <button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
         ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}" alt="" loading="lazy" onerror="this.remove()">` : ""}
-        <span class="artname">${esc(t.name)}</span>
         ${t.needsAttention ? `<span class="flag" title="This table is missing something, like a backglass">Needs attention</span>` : ""}
+
       </button>
       <div class="cardbody">
         <p class="tname">${esc(t.name)}</p>

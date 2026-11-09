@@ -2,7 +2,7 @@
 """
 vpin-dashboard - self-hosted server.
 
-Runs on Randy's NAS under Dockhand (CasaOS-style compose, official
+Runs on the Docker host under Dockhand (CasaOS-style compose, official
 Python image, no Dockerfile). It serves the library + stats web UI
 and a small JSON API that talks to the vpin bridge:
 
@@ -18,13 +18,12 @@ Endpoints:
                       /api/playlists)
   GET  /api/status    bridge /health + cabinet /api/status merged
   GET  /api/details/<gameId>   bridge table details + media
-  GET  /api/thumb/<gameId>     playfield picture (JPEG) for a
-                      table, cached under /data/thumbs. Fetched
-                      from the cabinet through the PC bridge
-                      (PC_BRIDGE_URL / PC_BRIDGE_KEY, optional):
-                      the PlayField media is a video, so a frame
-                      is grabbed from it with ffmpeg on the
-                      cabinet. 404 when no picture is available.
+  GET  /api/thumb/<gameId>     playfield picture (PNG or JPEG)
+                      for a table, cached under /data/thumbs.
+                      Streamed from VPin Studio through the vpin
+                      bridge; VPin Studio extracts a frame itself
+                      when the PlayField media is a video. 404
+                      when no picture is available.
   POST /api/play      {"gameId": int} -> bridge POST /api/play,
                       which launches the table on the cabinet
                       through VPin Studio. Refused by the bridge
@@ -49,14 +48,7 @@ from urllib.parse import urlparse
 PORT = int(os.environ.get("PORT", "8080"))
 BRIDGE_URL = os.environ.get("VPIN_BRIDGE_URL", "").rstrip("/")
 API_KEY = os.environ.get("VPIN_API_KEY", "")
-# Optional: the PC bridge running on the cabinet PC. Only used to
-# fetch playfield pictures: the cabinet's PlayField media is a
-# video, so the app asks the PC bridge to grab a frame from that
-# video with ffmpeg on the cabinet and reads the JPEG back. When
-# these are unset, cards simply show no picture.
-PC_BRIDGE_URL = os.environ.get("PC_BRIDGE_URL", "").rstrip("/")
-PC_BRIDGE_KEY = os.environ.get("PC_BRIDGE_KEY", "")
-THUMB_DIR = "/data/thumbs"
+THUMB_DIR = os.environ.get("THUMB_DIR", "/data/thumbs")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -295,145 +287,72 @@ def library_payload():
         "tables": tables,
         "scores": scores,
         "playlists": playlists,
-        "thumbsEnabled": bool(PC_BRIDGE_URL and PC_BRIDGE_KEY),
+        "thumbsEnabled": True,
     }
 
 
-def pcbridge(method, path, payload=None, timeout=60):
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(PC_BRIDGE_URL + path, data=data, method=method)
-    req.add_header("X-Api-Key", PC_BRIDGE_KEY)
-    req.add_header("Accept", "application/json")
-    if data:
-        req.add_header("Content-Type", "application/json")
+def bridge_bytes(path, timeout=60):
+    """Raw bridge call for endpoints that return files, not JSON."""
+    if not BRIDGE_URL:
+        raise RuntimeError("VPIN_BRIDGE_URL is not set in Dockhand Environment")
+    req = urllib.request.Request(BRIDGE_URL + path, method="GET")
+    req.add_header("X-Api-Key", API_KEY)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
-        try:
-            return json.loads(body.decode("utf-8"))
-        except Exception:
-            return None
+        return resp.headers.get("Content-Type", ""), resp.read()
 
 
 _thumb_failures = {}
 _thumb_lock = threading.Lock()
 
-_PS_ROOTS = "'C:\\PinUPSystem','C:\\vPinball','C:\\Visual Pinball'"
-
-
-def _ps_locate(name):
-    safe = name.replace("'", "''")
-    return (
-        "$f = Get-ChildItem -Path " + _PS_ROOTS +
-        " -Recurse -Filter '" + safe + "' -ErrorAction SilentlyContinue"
-        " | Select-Object -First 1 -ExpandProperty FullName;"
-        " if ($f) { $f } else { 'MISS' }"
-    )
-
 
 def fetch_thumb(game_id):
-    """Path to a cached playfield JPEG for the table, or None.
+    """(content_type, path) for a cached playfield picture, or None.
 
-    Fetches through the PC bridge on the cabinet when needed: the
-    PlayField media is a video there, so a frame is grabbed from
-    it with ffmpeg on the cabinet (Popper keeps an ffmpeg for its
-    recorder); a still-image PlayField is downscaled with
-    System.Drawing instead. Results cache under /data/thumbs;
-    failures are remembered for 10 minutes so a missing picture
-    costs one attempt, not one per page view.
+    The picture comes from the vpin bridge (GET /api/thumb/<id>),
+    which streams VPin Studio's PlayField media; VPin Studio
+    extracts a PNG frame itself when the PlayField is a video, so
+    no file or shell access on the cabinet is needed. Results
+    cache under /data/thumbs; failures are remembered for 10
+    minutes so a missing picture costs one attempt, not one per
+    page view.
     """
-    cached = os.path.join(THUMB_DIR, f"{game_id}.jpg")
+    cached = os.path.join(THUMB_DIR, f"{game_id}.img")
     try:
-        if os.path.isfile(cached) and os.path.getsize(cached) > 4000:
-            return cached
+        if os.path.isfile(cached) and os.path.getsize(cached) > 1000:
+            return _img_type(cached), cached
     except OSError:
         pass
-    if not PC_BRIDGE_URL or not PC_BRIDGE_KEY:
-        return None
     with _thumb_lock:
         try:
-            if os.path.isfile(cached) and os.path.getsize(cached) > 4000:
-                return cached
+            if os.path.isfile(cached) and os.path.getsize(cached) > 1000:
+                return _img_type(cached), cached
         except OSError:
             pass
         failed_at = _thumb_failures.get(game_id)
         if failed_at and time.time() - failed_at < 600:
             return None
-        result = _fetch_thumb_uncached(game_id, cached)
-        if result is None:
+        try:
+            ctype, data = bridge_bytes(f"/api/thumb/{game_id}")
+            if not ctype.startswith("image/") or len(data) <= 1000:
+                raise RuntimeError("no playfield picture available")
+            os.makedirs(THUMB_DIR, exist_ok=True)
+            with open(cached, "wb") as f:
+                f.write(data)
+            return _img_type(cached), cached
+        except Exception:
             _thumb_failures[game_id] = time.time()
-        return result
+            return None
 
 
-def _fetch_thumb_uncached(game_id, cached):
+def _img_type(path):
     try:
-        media = bridge("GET", f"/api/media/{game_id}")
-        screens = (media or {}).get("media") or {}
-        entries = screens.get("PlayField") or []
-        name = None
-        is_video = True
-        for e in entries:
-            if str(e.get("mimeType", "")).startswith("image/"):
-                name = e.get("name")
-                is_video = False
-                break
-        if name is None:
-            for e in entries:
-                if e.get("mimeType") == "video/mp4":
-                    name = e.get("name")
-                    break
-        if not name:
-            return None
-        located = pcbridge("POST", "/api/exec", {
-            "cmd": _ps_locate(name), "shell": "powershell", "timeout": 240,
-        }, timeout=260)
-        path = ((located or {}).get("stdout") or "").strip()
-        if not located or not located.get("ok") or not path or path == "MISS":
-            return None
-        safe_path = path.replace("'", "''")
-        if is_video:
-            cmd = (
-                "$ff = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source;"
-                " if (-not $ff) { $ff = Get-ChildItem -Path " + _PS_ROOTS +
-                " -Recurse -Filter 'ffmpeg.exe' -ErrorAction SilentlyContinue"
-                " | Select-Object -First 1 -ExpandProperty FullName };"
-                " if (-not $ff) { 'NOFFMPEG'; exit };"
-                " New-Item -ItemType Directory -Force -Path 'thumbs' | Out-Null;"
-                " & $ff -y -ss 3 -i '" + safe_path + "' -frames:v 1"
-                " -vf 'scale=480:-2' -q:v 3 'thumbs\\" + str(game_id) + ".jpg';"
-                " if ((Test-Path 'thumbs\\" + str(game_id) + ".jpg')"
-                " -and (Get-Item 'thumbs\\" + str(game_id) + ".jpg').Length -gt 4000)"
-                " { 'OK' } else { 'FAIL' }"
-            )
-        else:
-            cmd = (
-                "Add-Type -AssemblyName System.Drawing;"
-                " $img = [System.Drawing.Image]::FromFile('" + safe_path + "');"
-                " $w = [Math]::Min(480, $img.Width);"
-                " $h = [int]($img.Height * $w / $img.Width);"
-                " $bmp = New-Object System.Drawing.Bitmap($w, $h);"
-                " $g = [System.Drawing.Graphics]::FromImage($bmp);"
-                " $g.DrawImage($img, 0, 0, $w, $h);"
-                " New-Item -ItemType Directory -Force -Path 'thumbs' | Out-Null;"
-                " $bmp.Save('thumbs\\" + str(game_id) + ".jpg',"
-                " [System.Drawing.Imaging.ImageFormat]::Jpeg); 'OK'"
-            )
-        ran = pcbridge("POST", "/api/exec", {
-            "cmd": cmd, "shell": "powershell", "timeout": 240,
-        }, timeout=260)
-        if not ran or "OK" not in (ran.get("stdout") or ""):
-            return None
-        got = pcbridge("GET", f"/api/file?path=thumbs/{game_id}.jpg", timeout=60)
-        if not got or got.get("encoding") != "base64" or not got.get("content"):
-            return None
-        data = base64.b64decode(got["content"])
-        if len(data) <= 4000:
-            return None
-        os.makedirs(THUMB_DIR, exist_ok=True)
-        with open(cached, "wb") as f:
-            f.write(data)
-        return cached
-    except Exception:
-        return None
+        with open(path, "rb") as f:
+            head = f.read(4)
+    except OSError:
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    return "image/jpeg"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -497,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                 thumb = fetch_thumb(thumb_id)
                 if thumb is None:
                     return self._send(404, {"ok": False, "error": "no playfield picture available"})
-                return self._send_file(thumb, "image/jpeg")
+                return self._send_file(thumb[1], thumb[0])
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "details":
                 details = bridge("GET", f"/api/details/{parts[2]}")
                 media = {}
