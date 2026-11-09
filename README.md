@@ -13,12 +13,26 @@ cabinet running VPin Studio, reached through a vpin-bridge.
   through VPin Studio (the bridge forwards to VPin Studio's launch
   endpoint). The game runs on the cabinet; this app only triggers
   the launch. The bridge refuses while a game is already playing.
+- **Sync button** (top right of the web app): syncs with the
+  cabinet and saves the info on the server. Sync is incremental:
+  it pulls from the cabinet, compares against what is already
+  saved, and only adds the new or missing tables, scores,
+  playlists, and playfield thumbnails. What is already saved is
+  not re-downloaded or overwritten, and after a sync the page
+  shows everything the cabinet has.
 
 ## Layout
 
 - `app/server.py` — the server (Python standard library only). Serves
   the UI and a small JSON API that talks to the vpin bridge.
 - `app/index.html` — the web UI (single file, no build step).
+- `artifact/` — the Muse web artifact source (React client in
+  `client/`, server actions in `server/`, Drizzle migrations in
+  `drizzle/`). This is the live app: library grid with playfield
+  thumbnails and B2S/ROM/PUP/Color badges, sidebar categories,
+  playlists and Browse By, the Stats page, and the Sync button.
+  Host-specific values (bridge addresses, keys) are read from the
+  environment and are not stored in this repo.
 - `docker-compose.yml` — Dockhand/CasaOS-style stack: official
   Python image, no Dockerfile, host-path volumes under
   `/DATA/AppData/vpin-dashboard`.
@@ -47,11 +61,3 @@ The server calls the vpin bridge with the `X-Api-Key` header:
 
 If the cabinet is off, the dashboard shows an offline state and no
 tables or scores are invented.
-
-## Muse artifact source
-
-`artifact/` holds the full source of the Muse web artifact version
-of this dashboard (React client in `artifact/client`, server actions
-in `artifact/server/src`, schema migrations in `artifact/drizzle`).
-It reads the same cabinet data through the vpin bridge and its Play
-button launches tables through VPin Studio the same way.
