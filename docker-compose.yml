@@ -10,10 +10,17 @@ services:
       # in the repo or in this file.
       # VPIN_BRIDGE_URL is your vpin-bridge address on your network.
       # VPIN_API_KEY is the same key the bridge uses (its API_KEY).
+      # PC_BRIDGE_URL and PC_BRIDGE_KEY are optional: they point
+      # at the PC bridge on the cabinet PC and are only used to
+      # fetch playfield pictures (a frame is grabbed from each
+      # table's playfield video on the cabinet). Leave them unset
+      # and the cards simply show no picture.
       # The app files come from the public dhrandy/vpin-dashboard
       # repo, which clones with no token or sign-in.
       VPIN_BRIDGE_URL: ${VPIN_BRIDGE_URL}
       VPIN_API_KEY: ${VPIN_API_KEY}
+      PC_BRIDGE_URL: ${PC_BRIDGE_URL:-}
+      PC_BRIDGE_KEY: ${PC_BRIDGE_KEY:-}
       GIT_REPO: ${GIT_REPO:-https://github.com/dhrandy/vpin-dashboard.git}
       GIT_BRANCH: ${GIT_BRANCH:-main}
       PORT: "8080"
