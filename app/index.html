@@ -89,12 +89,42 @@
   .tile .l{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
   .panel{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:16px;margin-top:16px}
   .panel h3{margin:0 0 10px;text-transform:uppercase;letter-spacing:.03em}
-  .row{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:14px}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:14px;align-items:baseline}
+  .row>*{min-width:0;overflow-wrap:anywhere}
+  .row>strong{flex-shrink:0}
+  .stats-head{margin:4px 0 18px}
+  .stats-head h2{margin:0 0 4px;font-size:26px;text-transform:uppercase}
+  .stats-head p{margin:0;line-height:1.6}
+  .stats-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:16px}
+  .stats-grid>.panel{margin-top:0;min-width:0}
+  @media(min-width:800px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .stats-table{background:transparent;border:0;color:var(--text);font:inherit;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
+  .stats-table:hover{color:var(--cyan)}
+  .stats-table:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+  .rank-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:48px;border-top:1px solid var(--border);padding:8px 0;font-size:14px}
+  .rank-row:first-child{border-top:0}
+  .rank-num{color:var(--dim);font-size:12px}
+  .rank-value{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+  .rank-value small{display:block;color:var(--dim);font-size:11px;font-weight:400}
+  .rank-time{color:var(--dim);font-size:12px;text-align:right;max-width:115px}
+  .rank-bar{margin:6px 0 0;height:4px}
+  .bar.rank-bar i{background:var(--cyan)}
+  .panel-note{margin:-4px 0 12px;color:var(--dim);font-size:12px;line-height:1.5}
+  .tile{min-width:0}
+  .tile .v{overflow-wrap:anywhere;font-size:clamp(22px,3vw,30px)}
   .bar{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;margin:2px 0 8px}
   .bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
-  dialog{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:14px;max-width:520px;width:92vw;padding:20px}
+  dialog{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:14px;width:calc(100% - 24px);max-width:560px;max-height:calc(100dvh - 24px);padding:20px;overflow-y:auto;overflow-wrap:anywhere}
+  .detail-field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:12px;align-items:start;padding:6px 0;line-height:1.5}
+  .detail-field>*{min-width:0;overflow-wrap:anywhere}
+  @media(max-width:480px){dialog{padding:16px}.detail-field{grid-template-columns:minmax(0,1fr)}.detail-field>span:first-child{font-size:11px}.rank-time{max-width:90px}}
   dialog::backdrop{background:rgba(3,6,12,.75)}
   .dimg{width:100%;height:288px;object-fit:contain;background:#060a14;border-radius:8px;margin-bottom:12px}
+  .score-history{margin:14px 0}
+  .score-history h3{font-size:13px;color:var(--dim);text-transform:uppercase;margin-bottom:6px}
+  .history-entry{border-top:1px solid var(--border);padding:4px 0}
+  .history-entry summary{cursor:pointer;min-height:44px;align-content:center;font-size:13px;overflow-wrap:anywhere}
+  .history-entry .row{font-size:13px}
   .muted{color:var(--dim);font-size:13px}
   .empty{text-align:center;padding:60px 20px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
 </style>
@@ -149,7 +179,13 @@
     </div>
   </section>
   <section id="view-stats" style="display:none">
+    <div class="stats-head"><h2>Cabinet stats</h2><p class="muted">Play counts and last-played dates reported by the cabinet. Sync to refresh.</p></div>
     <div class="tiles" id="tiles"></div>
+    <div class="stats-grid">
+      <div class="panel"><h3>Top 10 most played</h3><p class="panel-note">Lifetime plays recorded by the cabinet.</p><div id="most-played"></div></div>
+      <div class="panel"><h3>Top 10 least played</h3><p class="panel-note">Including tables with zero recorded plays. Unknown counts are excluded.</p><div id="least-played"></div></div>
+    </div>
+    <div class="panel"><h3>Last 10 tables played</h3><p class="panel-note">Most recent distinct tables, not a session-by-session log. Cabinet local time.</p><div id="recent-tables"></div></div>
     <div class="panel"><h3>Top tables by best score</h3><div id="top-tables"></div></div>
     <div class="panel"><h3>Player leaderboard</h3><div id="players"></div></div>
     <div class="panel"><h3>Tables by maker</h3><div id="makers"></div></div>
@@ -347,7 +383,7 @@ function renderLibrary() {
   $("grid").innerHTML = rows.map((t) => `
     <article class="card">
       <button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
-        ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+        ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}?v=2" alt="" loading="lazy" onerror="this.remove()">` : ""}
         ${t.needsAttention ? `<span class="flag" title="This table is missing something, like a backglass">Needs attention</span>` : ""}
 
       </button>
@@ -376,9 +412,23 @@ function renderStats() {
     if (t.year) { const d = Math.floor(t.year / 10) * 10 + "s"; decades.set(d, (decades.get(d) || 0) + 1); }
   }
   $("tiles").innerHTML = [
-    ["Tables on cabinet", DATA.tables.length], ["Tables with scores", withScores],
-    ["Highest score", fmt(highest || null)], ["Makers", makers.size],
+    ["Tables on cabinet", fmt(DATA.tables.length)],
+    ["Recorded plays", fmt(DATA.tables.reduce((n, t) => n + (t.playCount ?? 0), 0))],
+    ["Tables played", DATA.tables.filter((t) => t.playCount > 0).length],
+    ["Tables with scores", withScores],
   ].map(([l, v]) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const counted = DATA.tables.filter((t) => Number.isInteger(t.playCount) && t.playCount >= 0);
+  const nameOrder = (a, b) => a.name.localeCompare(b.name);
+  const most = [...counted].filter((t) => t.playCount > 0).sort((a, b) => b.playCount - a.playCount || nameOrder(a, b)).slice(0, 10);
+  const least = [...counted].sort((a, b) => a.playCount - b.playCount || nameOrder(a, b)).slice(0, 10);
+  const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></div>`).join("");
+  $("most-played").innerHTML = most.length ? playRows(most, true) : '<p class="muted">No positive play counts reported yet.</p>';
+  $("least-played").innerHTML = least.length ? playRows(least, false) : '<p class="muted">Play counts are not available from the cabinet.</p>';
+  const recent = DATA.tables.filter((t) => t.lastPlayedAt && Number.isFinite(Date.parse(t.lastPlayedAt)))
+    .sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt) || nameOrder(a, b)).slice(0, 10);
+  const playedDate = (value) => new Date(value).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit"});
+  $("recent-tables").innerHTML = recent.length ? recent.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button><time class="rank-time" datetime="${esc(t.lastPlayedAt)}">${esc(playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
+  $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   const tops = DATA.tables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
   const max = tops[0]?.best || 1;
@@ -408,27 +458,51 @@ async function openDetail(gameId) {
   const entry = bestByTable().get(gameId);
   const d = $("detail");
   d.innerHTML = `
-    ${DATA.thumbsEnabled ? `<img class="dimg" src="/api/thumb/${t.gameId}" alt="Playfield of ${esc(t.name)}" onerror="this.remove()">` : ""}
+    ${DATA.thumbsEnabled ? `<img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}" onerror="this.remove()">` : ""}
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
     <p class="muted">${esc([t.maker, t.year].filter(Boolean).join(" · ") || "Maker and year not reported")}</p>
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
     ${entry ? entry.scores.map((s) => `<div class="row"><span>#${s.rank} ${esc(s.initials || "—")}</span><strong style="color:var(--accent)">${fmt(s.score)}</strong></div>`).join("") : '<p class="muted">No scores recorded on this table.</p>'}
+    <section class="score-history"><h3>Recent score changes</h3><p class="panel-note">Latest saved highscore snapshots, not results from every play. Expand a date to see its scores.</p><div id="detail-history" class="muted">Loading score history…</div></section>
     <div id="detail-extra" class="muted">Loading cabinet details…</div>
     <button class="play" id="detail-play" style="width:100%;margin-top:14px;padding:12px" ${STATUS.state === "online" && !STATUS.gamePlaying ? "" : "disabled"}>▶ Play on the cabinet</button>
     <p class="muted" style="text-align:center">Launches through VPin Studio on the cabinet.</p>
     <button id="detail-close" style="width:100%;margin-top:6px;padding:10px;background:var(--surface2);color:var(--text);border:0;border-radius:6px;cursor:pointer">Close</button>`;
+  d.dataset.gameId = String(gameId);
   d.showModal();
+  loadScoreHistory(gameId);
   $("detail-close").addEventListener("click", () => d.close());
   $("detail-play").addEventListener("click", () => { d.close(); play(gameId); });
   try {
     const res = await fetch("/api/details/" + gameId).then((r) => r.json());
+    if (d.dataset.gameId !== String(gameId)) return;
     const fields = res && res.details && typeof res.details === "object"
       ? Object.entries(res.details).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v) && v !== "").slice(0, 20) : [];
     $("detail-extra").innerHTML = fields.length
-      ? "<h3 style='text-transform:uppercase;font-size:13px;color:var(--dim)'>Cabinet details</h3>" + fields.map(([k, v]) => `<div class="row"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
+      ? "<h3 style='text-transform:uppercase;font-size:13px;color:var(--dim)'>Cabinet details</h3>" + fields.map(([k, v]) => `<div class="detail-field"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
       : "The cabinet reported no extra detail fields for this table.";
-  } catch { $("detail-extra").textContent = "Cabinet details could not be loaded."; }
+  } catch { if (d.dataset.gameId === String(gameId)) $("detail-extra").textContent = "Cabinet details could not be loaded."; }
+}
+
+async function loadScoreHistory(gameId) {
+  try {
+    const response = await fetch("/api/scorehistory/" + gameId);
+    if (!response.ok) throw new Error("History unavailable");
+    const history = await response.json();
+    if (!Array.isArray(history?.scores)) throw new Error("Unsupported history response");
+    if ($("detail").dataset.gameId !== String(gameId)) return;
+    const seen = new Set();
+    const snapshots = history.scores.filter((h) => h && h.createdAt && Number.isFinite(Date.parse(h.createdAt)) && Array.isArray(h.scores))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).filter((h) => {
+        const signature = h.createdAt + JSON.stringify(h.scores.map((s) => [s.position, s.playerInitials, s.score, s.label, s.suffix]));
+        if (seen.has(signature)) return false;
+        seen.add(signature); return true;
+      }).slice(0, 5);
+    $("detail-history").innerHTML = snapshots.length ? snapshots.map((h, i) => `<details class="history-entry" ${i === 0 ? "open" : ""}><summary>${esc(new Date(h.createdAt).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit", hour12:true}))}</summary>${h.scores.filter((s) => Number.isFinite(Number(s.score)) && Number(s.score) > 0).map((s) => `<div class="row"><span>${esc(s.label || (s.position ? "#" + s.position : "Score"))} · ${esc(s.playerInitials || "Unknown")}</span><strong>${fmt(s.score)}${esc(s.suffix || "")}</strong></div>`).join("") || '<p class="muted">No numeric scores in this snapshot.</p>'}</details>`).join("") : "No saved score changes reported for this table.";
+  } catch {
+    if ($("detail").dataset.gameId === String(gameId)) $("detail-history").textContent = "Score history is unavailable from the bridge or this version of VPin Studio.";
+  }
 }
 
 async function play(gameId) {

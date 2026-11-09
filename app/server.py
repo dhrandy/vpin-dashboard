@@ -37,18 +37,27 @@ import csv
 import io
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 PORT = int(os.environ.get("PORT", "8080"))
 BRIDGE_URL = os.environ.get("VPIN_BRIDGE_URL", "").rstrip("/")
 API_KEY = os.environ.get("VPIN_API_KEY", "")
-THUMB_DIR = os.environ.get("THUMB_DIR", "/data/thumbs")
+THUMB_ROOT = os.environ.get("THUMB_DIR", "/data/thumbs")
+THUMB_DIR = os.path.join(THUMB_ROOT, "upright-v1")
+# Pillow is installed once into this folder on first use, so the app
+# files alone (pulled from the repo on restart) are enough: no
+# compose change and no repeated install cost.
+PYLIBS = os.path.join(os.path.dirname(THUMB_ROOT.rstrip("/")) or "/", "pylibs")
+if os.path.isdir(PYLIBS) and PYLIBS not in sys.path:
+    sys.path.insert(0, PYLIBS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -83,6 +92,15 @@ def as_year(value):
     except (TypeError, ValueError):
         return None
     return year if 1900 <= year <= 2100 else None
+
+
+def as_play_count(value):
+    """Negative means unreported, not an unplayed table."""
+    try:
+        n = int(value)
+        return n if n >= 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def parse_raw_scores(text):
@@ -159,7 +177,7 @@ def parse_games_export(text):
     cols = {k: idx(k) for k in (
         "id", "manufacturer", "gameYear", "directB2SFile", "rom",
         "romName", "altColorType", "pupPackInstalled", "pupPackName",
-        "lastPlayed", "modified", "dateModified",
+        "lastPlayed", "modified", "dateModified", "numberPlayed", "numberPlays",
     )}
     cols["name"] = idx("gameDisplayName", 0)
 
@@ -186,6 +204,9 @@ def parse_games_export(text):
             "year": as_year(cell(r, cols["gameYear"])),
             "badges": badges,
             "lastPlayedAt": parse_cabinet_dt(cell(r, cols["lastPlayed"])),
+            "playCount": as_play_count(cell(r, cols["numberPlayed"]))
+            if as_play_count(cell(r, cols["numberPlayed"])) is not None
+            else as_play_count(cell(r, cols["numberPlays"])),
             "modifiedAt": parse_cabinet_dt(cell(r, cols["modified"]))
             or parse_cabinet_dt(cell(r, cols["dateModified"])),
         }
@@ -222,6 +243,9 @@ def library_payload():
             "needsAttention": bool(ex) and "B2S" not in ex.get("badges", []),
             "tags": g.get("tags") if isinstance(g.get("tags"), list) else [],
             "lastPlayedAt": ex.get("lastPlayedAt"),
+            "playCount": as_play_count(g.get("numberPlayed"))
+            if as_play_count(g.get("numberPlayed")) is not None
+            else ex.get("playCount"),
             "addedAt": pick(g, "dateAdded"),
         })
     for game_id, ex in export.items():
@@ -236,6 +260,7 @@ def library_payload():
             "needsAttention": "B2S" not in ex.get("badges", []),
             "tags": [],
             "lastPlayedAt": ex.get("lastPlayedAt"),
+            "playCount": ex.get("playCount"),
             "addedAt": ex.get("modifiedAt"),
         })
 
@@ -306,53 +331,116 @@ _thumb_lock = threading.Lock()
 
 
 def fetch_thumb(game_id):
-    """(content_type, path) for a cached playfield picture, or None.
+    """(card, detail) for a cached playfield picture, or (None, None).
 
-    The picture comes from the vpin bridge (GET /api/thumb/<id>),
-    which streams VPin Studio's PlayField media; VPin Studio
-    extracts a PNG frame itself when the PlayField is a video, so
-    no file or shell access on the cabinet is needed. Results
-    cache under /data/thumbs; failures are remembered for 10
+    Each entry is (content_type, path): card is a small JPEG for the
+    grid, detail a sharper one for the dialog. The source comes from
+    the vpin bridge (GET /api/thumb/<id>), which streams VPin
+    Studio's PlayField media; VPin Studio extracts a PNG frame
+    itself when the PlayField is a video, so no file or shell access
+    on the cabinet is needed. PlayField frames come back turned
+    sideways (landscape), so they are rotated upright once, cached
+    at both sizes under /data/thumbs, and the full-size source is
+    never sent to the browser. Failures are remembered for 10
     minutes so a missing picture costs one attempt, not one per
-    page view.
+    page view. Invalid images or an unavailable decoder return no
+    picture rather than silently caching sideways originals.
     """
-    cached = os.path.join(THUMB_DIR, f"{game_id}.img")
-    try:
-        if os.path.isfile(cached) and os.path.getsize(cached) > 1000:
-            return _img_type(cached), cached
-    except OSError:
-        pass
+    card = os.path.join(THUMB_DIR, f"{game_id}.jpg")
+    detail = os.path.join(THUMB_DIR, f"{game_id}-large.jpg")
+    hit = _thumb_cache_hit(card, detail)
+    if hit:
+        return hit
     with _thumb_lock:
-        try:
-            if os.path.isfile(cached) and os.path.getsize(cached) > 1000:
-                return _img_type(cached), cached
-        except OSError:
-            pass
+        hit = _thumb_cache_hit(card, detail)
+        if hit:
+            return hit
         failed_at = _thumb_failures.get(game_id)
         if failed_at and time.time() - failed_at < 600:
-            return None
+            return None, None
         try:
-            ctype, data = bridge_bytes(f"/api/thumb/{game_id}")
+            legacy = os.path.join(THUMB_ROOT, f"{game_id}.img")
+            if os.path.isfile(legacy) and os.path.getsize(legacy) > 1000:
+                with open(legacy, "rb") as f:
+                    data = f.read()
+                ctype = "image/legacy"
+            else:
+                ctype, data = bridge_bytes(f"/api/thumb/{game_id}")
             if not ctype.startswith("image/") or len(data) <= 1000:
                 raise RuntimeError("no playfield picture available")
             os.makedirs(THUMB_DIR, exist_ok=True)
-            with open(cached, "wb") as f:
-                f.write(data)
-            return _img_type(cached), cached
+            if not _store_normalized(card, detail, data):
+                raise RuntimeError("playfield normalization failed")
+            return _thumb_cache_hit(card, detail) or (None, None)
         except Exception:
             _thumb_failures[game_id] = time.time()
-            return None
+            return None, None
 
 
-def _img_type(path):
+def _thumb_cache_hit(card, detail):
     try:
-        with open(path, "rb") as f:
-            head = f.read(4)
+        if os.path.isfile(card) and os.path.getsize(card) > 1000 \
+                and os.path.isfile(detail) and os.path.getsize(detail) > 1000:
+            return ("image/jpeg", card), ("image/jpeg", detail)
     except OSError:
-        return "image/jpeg"
-    if head.startswith(b"\x89PNG"):
-        return "image/png"
-    return "image/jpeg"
+        pass
+    return None
+
+
+_pillow_attempted = False
+
+
+def _ensure_pillow():
+    global _pillow_attempted
+    try:
+        import PIL.Image  # noqa
+        return True
+    except ImportError:
+        pass
+    if _pillow_attempted:
+        return False
+    _pillow_attempted = True
+    try:
+        os.makedirs(PYLIBS, exist_ok=True)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet",
+             "--only-binary=:all:", "--target", PYLIBS, "pillow==12.0.0"],
+            timeout=120, check=False,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if PYLIBS not in sys.path:
+            sys.path.insert(0, PYLIBS)
+        import PIL.Image  # noqa
+        return True
+    except Exception:
+        return False
+
+
+def _store_normalized(card_path, detail_path, data):
+    """Rotate upright if sideways, then save card (480px) and detail
+    (960px) JPEGs. Returns False when Pillow is unavailable."""
+    if not _ensure_pillow():
+        return False
+    try:
+        from PIL import Image, ImageOps
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        img.load()
+        img = img.convert("RGB")
+        if img.width > img.height:
+            # Playfield media is stored turned 90 degrees
+            # counterclockwise; rotating CW puts the flippers back
+            # at the bottom. Already-upright (portrait) pictures
+            # are left alone.
+            img = img.transpose(Image.Transpose.ROTATE_270)
+        for path, width, quality in ((card_path, 480, 82), (detail_path, 960, 85)):
+            out = img
+            if img.width > width:
+                out = img.resize((width, round(img.height * width / img.width)), Image.Resampling.LANCZOS)
+            out.save(path + ".tmp", "JPEG", quality=quality)
+            os.replace(path + ".tmp", path)
+        return True
+    except Exception:
+        return False
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -413,10 +501,19 @@ class Handler(BaseHTTPRequestHandler):
                     thumb_id = int(parts[2])
                 except ValueError:
                     return self._send(400, {"ok": False, "error": "bad table id"})
-                thumb = fetch_thumb(thumb_id)
-                if thumb is None:
+                card, detail = fetch_thumb(thumb_id)
+                pick = detail if parse_qs(urlparse(self.path).query).get("full") == ["1"] else card
+                if pick is None:
                     return self._send(404, {"ok": False, "error": "no playfield picture available"})
-                return self._send_file(thumb[1], thumb[0])
+                return self._send_file(pick[1], pick[0])
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "scorehistory":
+                try:
+                    game_id = int(parts[2])
+                    if game_id <= 0:
+                        raise ValueError()
+                except ValueError:
+                    return self._send(400, {"ok": False, "error": "bad table id"})
+                return self._send(200, bridge("GET", f"/api/scorehistory/{game_id}"))
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "details":
                 details = bridge("GET", f"/api/details/{parts[2]}")
                 media = {}
@@ -462,6 +559,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
     try:
         os.makedirs("/data", exist_ok=True)
+        os.makedirs(THUMB_DIR, exist_ok=True)
     except Exception:
         pass
     print(f"vpin-dashboard listening on :{PORT}, bridge={BRIDGE_URL or '(unset)'}", flush=True)
