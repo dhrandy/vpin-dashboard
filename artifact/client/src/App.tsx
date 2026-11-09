@@ -1,16 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+Bar,
+BarChart,
+CartesianGrid,
+Cell,
+Pie,
+PieChart,
+ResponsiveContainer,
+Tooltip,
+XAxis,
+YAxis,
 } from "recharts";
 import { api, type ApiResponse } from "./api";
 
@@ -52,6 +52,31 @@ function fmtTime(iso: string | null): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function SyncGlyph({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={spinning ? "animate-spin" : undefined}
+      style={spinning ? { animationDuration: "0.9s" } : undefined}
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 function PlayGlyph() {
@@ -211,6 +236,23 @@ function PlayBanner({
   );
 }
 
+function BadgeRow({ badges }: { badges: string[] }) {
+  if (badges.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {badges.map((b) => (
+        <span
+          key={b}
+          className="rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide"
+          style={{ background: "var(--surface2)", color: "var(--cyan)" }}
+        >
+          {b}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function TableCard({
   table,
   onOpen,
@@ -237,39 +279,53 @@ function TableCard({
         className="block text-left"
       >
         <div
-          className="flex aspect-[3/4] flex-col justify-between p-3"
+          className="relative aspect-[3/4] overflow-hidden"
           style={{
             background:
               "linear-gradient(160deg, var(--surface2) 0%, #0d1830 60%, #132341 100%)",
           }}
         >
-          <div className="flex items-start justify-between gap-2">
-            <span
-              className="rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide"
-              style={{ background: "rgba(0,0,0,0.45)", color: "var(--cyan)" }}
-            >
-              {table.scoreCount > 0 ? `${table.scoreCount} SCORE${table.scoreCount === 1 ? "" : "S"}` : "NO SCORES YET"}
-            </span>
-            {table.playlists.length > 0 && (
+          {table.thumbUrl ? (
+            <img
+              src={table.thumbUrl}
+              alt={`Playfield of ${table.name}`}
+              className="absolute inset-0 h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex h-full flex-col justify-between p-3">
               <span
-                className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
-                style={{ background: "rgba(0,0,0,0.45)", color: "var(--dim)" }}
+                className="self-start rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide"
+                style={{ background: "rgba(0,0,0,0.45)", color: "var(--cyan)" }}
               >
-                {table.playlists[0]}
+                {table.scoreCount > 0 ? `${table.scoreCount} SCORE${table.scoreCount === 1 ? "" : "S"}` : "NO SCORES YET"}
               </span>
-            )}
-          </div>
-          <div>
-            <p className="font-display text-2xl leading-tight font-semibold tracking-wide uppercase">
-              {table.name}
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--dim)" }}>
-              {[table.maker, table.year].filter(Boolean).join(" · ") || "Maker and year not reported by the cabinet"}
-            </p>
-          </div>
+              <p className="font-display text-2xl leading-tight font-semibold tracking-wide uppercase">
+                {table.name}
+              </p>
+            </div>
+          )}
+          {table.thumbUrl && table.needsAttention && (
+            <span
+              className="absolute top-2 right-2 rounded px-1.5 py-0.5 text-[11px] font-bold"
+              style={{ background: "rgba(0,0,0,0.6)", color: "var(--red)" }}
+              title="This table is missing something, like media or a backglass"
+            >
+              Needs attention
+            </span>
+          )}
+        </div>
+        <div className="px-3 pt-2">
+          <p className="font-display truncate text-xl leading-tight font-semibold tracking-wide uppercase">
+            {table.name}
+          </p>
+          <p className="mt-0.5 truncate text-xs" style={{ color: "var(--dim)" }}>
+            {[table.maker, table.year].filter(Boolean).join(" · ") || "Maker and year not reported by the cabinet"}
+          </p>
+          <BadgeRow badges={table.badges} />
         </div>
       </button>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 px-3 py-2">
         <div className="min-w-0">
           <p className="text-[11px] tracking-wide uppercase" style={{ color: "var(--dim)" }}>
             Top score{table.bestInitials ? ` · ${table.bestInitials}` : ""}
@@ -300,6 +356,53 @@ function TableCard({
   );
 }
 
+const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+
+function isFavourite(t: LibraryTable): boolean {
+  return t.playlists.some((p) => /favourites|favorites/i.test(p));
+}
+
+function withinRecent(iso: string | null): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !Number.isNaN(t) && Date.now() - t <= RECENT_MS;
+}
+
+// Smart playlists are computed from the cabinet data itself:
+// author/maker tags, originals, decades, and the mod tags that
+// appear in the cabinet's own table names (Hybrid, nFozzy, Fleep,
+// SSF). A list with no matching tables shows a real count of 0.
+type SmartList = { key: string; label: string; test: (t: LibraryTable) => boolean };
+
+const nameTag = (re: RegExp) => (t: LibraryTable) =>
+  re.test(t.name) || re.test(t.maker ?? "");
+
+const SMART_LISTS: SmartList[] = [
+  {
+    key: "smart:vpw",
+    label: "VPin Workshop's",
+    test: nameTag(/vpw|vpin workshop/i),
+  },
+  {
+    key: "smart:originals",
+    label: "Originals",
+    test: (t) => !t.maker || t.maker.trim().toLowerCase() === "original",
+  },
+  ...[1970, 1980, 1990, 2000, 2010, 2020].map(
+    (decade): SmartList => ({
+      key: `smart:decade-${decade}`,
+      label: `The ${decade}s`,
+      test: (t) => t.year !== null && t.year >= decade && t.year < decade + 10,
+    }),
+  ),
+  { key: "smart:hybrid", label: "Hybrid", test: nameTag(/hybrid/i) },
+  { key: "smart:nfozzy", label: "nFozzy", test: nameTag(/nfozzy/i) },
+  { key: "smart:fleep", label: "Fleep", test: nameTag(/fleep/i) },
+  { key: "smart:ssf", label: "SSF", test: nameTag(/\bssf\b/i) },
+];
+
+const BADGE_FILTERS = ["B2S", "ROM", "PUP", "Color"] as const;
+
 function LibraryView({
   data,
   onOpen,
@@ -313,18 +416,52 @@ function LibraryView({
   const [sort, setSort] = useState("name");
   const [filter, setFilter] = useState<string>("all");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [browseBy, setBrowseBy] = useState<"maker" | "decade">("maker");
 
-  const counts = useMemo(() => {
-    const withScores = data.tables.filter((t) => t.scoreCount > 0).length;
-    return { all: data.tables.length, withScores, noScores: data.tables.length - withScores };
+  const derived = useMemo(() => {
+    const tables = data.tables;
+    const topRatedIds = new Set(
+      [...tables]
+        .filter((t) => t.bestScore !== null)
+        .sort((a, b) => (b.bestScore ?? 0) - (a.bestScore ?? 0))
+        .slice(0, 10)
+        .map((t) => t.cabinetGameId),
+    );
+    const match = (t: LibraryTable, key: string): boolean => {
+      if (key === "all") return true;
+      if (key === "with-scores") return t.scoreCount > 0;
+      if (key === "no-scores") return t.scoreCount === 0;
+      if (key === "cat:favourites") return isFavourite(t);
+      if (key === "cat:top-rated") return topRatedIds.has(t.cabinetGameId);
+      if (key === "cat:recently-played") return withinRecent(t.lastPlayedAt);
+      if (key === "cat:recently-added") return withinRecent(t.addedAt);
+      if (key === "cat:needs-attention") return t.needsAttention;
+      if (key.startsWith("maker:")) return t.maker === key.slice(6);
+      if (key.startsWith("decade:")) {
+        const d = Number(key.slice(7));
+        return t.year !== null && t.year >= d && t.year < d + 10;
+      }
+      if (key.startsWith("playlist:")) return t.playlists.includes(key.slice(9));
+      if (key.startsWith("badge:")) return t.badges.includes(key.slice(6));
+      if (key.startsWith("smart:")) {
+        const list = SMART_LISTS.find((s) => s.key === key);
+        return list ? list.test(t) : true;
+      }
+      return true;
+    };
+    const countFor = (key: string) => tables.filter((t) => match(t, key)).length;
+    const decades = new Map<number, number>();
+    for (const t of tables) {
+      if (t.year) {
+        const d = Math.floor(t.year / 10) * 10;
+        decades.set(d, (decades.get(d) ?? 0) + 1);
+      }
+    }
+    return { match, countFor, topRatedIds, decades };
   }, [data.tables]);
 
   const filtered = useMemo(() => {
-    let rows = data.tables;
-    if (filter === "with-scores") rows = rows.filter((t) => t.scoreCount > 0);
-    else if (filter === "no-scores") rows = rows.filter((t) => t.scoreCount === 0);
-    else if (filter.startsWith("maker:")) rows = rows.filter((t) => t.maker === filter.slice(6));
-    else if (filter.startsWith("playlist:")) rows = rows.filter((t) => t.playlists.includes(filter.slice(9)));
+    let rows = data.tables.filter((t) => derived.match(t, filter));
     const q = search.trim().toLowerCase();
     if (q) {
       rows = rows.filter(
@@ -340,10 +477,27 @@ function LibraryView({
     else if (sort === "year-desc") sorted.sort((a, b) => (b.year ?? -1) - (a.year ?? -1));
     else if (sort === "year-asc") sorted.sort((a, b) => (a.year ?? 99999) - (b.year ?? 99999));
     else if (sort === "maker") sorted.sort((a, b) => (a.maker ?? "~").localeCompare(b.maker ?? "~") || a.name.localeCompare(b.name));
+    else if (sort === "played") sorted.sort((a, b) => (b.lastPlayedAt ?? "").localeCompare(a.lastPlayedAt ?? ""));
+    else if (sort === "added") sorted.sort((a, b) => (b.addedAt ?? "").localeCompare(a.addedAt ?? ""));
     return sorted;
-  }, [data.tables, filter, search, sort]);
+  }, [data.tables, filter, search, sort, derived]);
 
-  const filterBtn = (key: string, label: string, count?: number) => (
+  const heading = useMemo(() => {
+    if (filter === "all") return "All tables";
+    if (filter === "with-scores") return "Tables with scores";
+    if (filter === "no-scores") return "No scores yet";
+    if (filter === "cat:favourites") return "Favourites";
+    if (filter === "cat:top-rated") return "Top rated";
+    if (filter === "cat:recently-played") return "Recently played";
+    if (filter === "cat:recently-added") return "Recently added";
+    if (filter === "cat:needs-attention") return "Needs attention";
+    if (filter.startsWith("smart:")) return SMART_LISTS.find((s) => s.key === filter)?.label ?? "Smart playlist";
+    if (filter.startsWith("badge:")) return `Has ${filter.slice(6)}`;
+    if (filter.startsWith("decade:")) return `The ${filter.slice(7)}s`;
+    return filter.replace(/^(maker|playlist):/, "");
+  }, [filter]);
+
+  const filterBtn = (key: string, label: string, count?: number, letter?: string) => (
     <button
       key={key}
       type="button"
@@ -356,58 +510,108 @@ function LibraryView({
         fontWeight: filter === key ? 600 : 400,
       }}
     >
-      <span className="truncate">{label}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        {letter !== undefined && (
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[11px] font-bold"
+            style={{ background: "var(--surface2)", color: "var(--cyan)" }}
+            aria-hidden="true"
+          >
+            {letter}
+          </span>
+        )}
+        <span className="truncate">{label}</span>
+      </span>
       {count !== undefined && <span className="ml-2 text-xs">{count}</span>}
     </button>
   );
 
+  const sectionTitle = (text: string) => (
+    <p className="mt-4 px-2.5 text-[11px] font-bold tracking-widest uppercase first:mt-0" style={{ color: "var(--dim)" }}>
+      {text}
+    </p>
+  );
+
+  const smartWithCounts = SMART_LISTS.map((s) => ({ ...s, count: derived.countFor(s.key) }));
+
   const sidebar = (
     <div>
-      <p className="px-2.5 text-[11px] font-bold tracking-widest uppercase" style={{ color: "var(--dim)" }}>
-        Library
-      </p>
+      {sectionTitle("Library")}
       <div className="mt-1 space-y-0.5">
-        {filterBtn("all", "All tables", counts.all)}
-        {filterBtn("with-scores", "With scores", counts.withScores)}
-        {filterBtn("no-scores", "No scores yet", counts.noScores)}
+        {filterBtn("all", "All tables", derived.countFor("all"))}
+        {filterBtn("cat:favourites", "Favourites", derived.countFor("cat:favourites"))}
+        {filterBtn("cat:top-rated", "Top rated", derived.countFor("cat:top-rated"))}
+        {filterBtn("cat:recently-played", "Recently played", derived.countFor("cat:recently-played"))}
+        {filterBtn("cat:recently-added", "Recently added", derived.countFor("cat:recently-added"))}
+        {filterBtn("cat:needs-attention", "Needs attention", derived.countFor("cat:needs-attention"))}
+        {filterBtn("with-scores", "With scores", derived.countFor("with-scores"))}
+        {filterBtn("no-scores", "No scores yet", derived.countFor("no-scores"))}
       </div>
+
+      <>
+        {sectionTitle("Smart playlists")}
+        <div className="mt-1 space-y-0.5">
+          {smartWithCounts.map((s) => filterBtn(s.key, s.label, s.count))}
+        </div>
+      </>
+
       {data.playlists.length > 0 && (
         <>
-          <p className="mt-4 px-2.5 text-[11px] font-bold tracking-widest uppercase" style={{ color: "var(--dim)" }}>
-            Playlists
-          </p>
+          {sectionTitle("Your playlists")}
           <div className="mt-1 space-y-0.5">
             {data.playlists.map((p) => filterBtn(`playlist:${p.name}`, p.name, p.count))}
           </div>
         </>
       )}
-      {data.makers.length > 0 && (
+
+      {(data.makers.length > 0 || derived.decades.size > 0) && (
         <>
-          <p className="mt-4 px-2.5 text-[11px] font-bold tracking-widest uppercase" style={{ color: "var(--dim)" }}>
-            Browse by maker
-          </p>
+          <div className="mt-4 flex items-center justify-between px-2.5">
+            <p className="text-[11px] font-bold tracking-widest uppercase" style={{ color: "var(--dim)" }}>
+              Browse by
+            </p>
+            <label className="sr-only" htmlFor="browse-by">Browse tables by</label>
+            <select
+              id="browse-by"
+              value={browseBy}
+              onChange={(e) => setBrowseBy(e.target.value as "maker" | "decade")}
+              className="rounded-md border px-2 py-1 text-xs font-semibold"
+              style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
+            >
+              <option value="maker">Maker</option>
+              <option value="decade">Decade</option>
+            </select>
+          </div>
           <div className="mt-1 space-y-0.5">
-            {data.makers.map((m) => filterBtn(`maker:${m.maker}`, m.maker, m.count))}
+            {browseBy === "maker"
+              ? data.makers.map((m) => filterBtn(`maker:${m.maker}`, m.maker, m.count, m.maker.charAt(0).toUpperCase()))
+              : [...derived.decades.entries()]
+                  .sort((a, b) => a[0] - b[0])
+                  .map(([d, count]) => filterBtn(`decade:${d}`, `The ${d}s`, count, String(d).slice(2, 3)))}
           </div>
         </>
       )}
     </div>
   );
 
+  const mobileChips: [string, string][] = [
+    ["all", "All"],
+    ["cat:favourites", "Favourites"],
+    ["cat:top-rated", "Top rated"],
+    ["cat:recently-played", "Recently played"],
+    ["cat:recently-added", "Recently added"],
+    ["cat:needs-attention", "Needs attention"],
+    ["with-scores", "With scores"],
+    ["no-scores", "No scores"],
+    ...data.makers.slice(0, 6).map((m): [string, string] => [`maker:${m.maker}`, m.maker]),
+  ];
+
   return (
     <div className="flex gap-4">
-      <aside className="sticky top-24 hidden w-52 shrink-0 self-start md:block">{sidebar}</aside>
+      <aside className="sticky top-24 hidden max-h-[calc(100vh-7rem)] w-52 shrink-0 self-start overflow-y-auto pr-1 md:block">{sidebar}</aside>
       <section className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-display text-3xl font-semibold tracking-wide uppercase">
-            {filter === "all"
-              ? "All tables"
-              : filter === "with-scores"
-                ? "Tables with scores"
-                : filter === "no-scores"
-                  ? "No scores yet"
-                  : filter.replace(/^(maker|playlist):/, "")}
-          </h2>
+          <h2 className="font-display text-3xl font-semibold tracking-wide uppercase">{heading}</h2>
           <span className="text-sm" style={{ color: "var(--dim)" }}>
             {filtered.length} of {data.tables.length} tables
           </span>
@@ -421,7 +625,7 @@ function LibraryView({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tables, makers, years"
-            className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm sm:max-w-xs"
+            className="min-w-0 flex-1 basis-full rounded-md border px-3 py-2 text-sm sm:basis-auto sm:max-w-xs"
             style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
           />
           <label className="sr-only" htmlFor="table-sort">Sort tables</label>
@@ -434,6 +638,8 @@ function LibraryView({
           >
             <option value="name">Sort: Name</option>
             <option value="score">Sort: Highest score</option>
+            <option value="played">Sort: Recently played</option>
+            <option value="added">Sort: Recently added</option>
             <option value="maker">Sort: Maker</option>
             <option value="year-desc">Sort: Year, newest</option>
             <option value="year-asc">Sort: Year, oldest</option>
@@ -462,15 +668,28 @@ function LibraryView({
           </div>
         </div>
 
+        <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Filter by feature">
+          <span className="text-[11px] font-bold tracking-widest uppercase" style={{ color: "var(--dim)" }}>Has</span>
+          {BADGE_FILTERS.map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => setFilter(filter === `badge:${b}` ? "all" : `badge:${b}`)}
+              aria-pressed={filter === `badge:${b}`}
+              className="rounded-full border px-3 py-1 text-xs font-bold"
+              style={{
+                borderColor: "var(--border)",
+                background: filter === `badge:${b}` ? "var(--surface2)" : "var(--surface)",
+                color: filter === `badge:${b}` ? "var(--text)" : "var(--dim)",
+              }}
+            >
+              {b}
+            </button>
+          ))}
+        </div>
+
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 md:hidden" aria-label="Library filters">
-          {(
-            [
-              ["all", "All"],
-              ["with-scores", "With scores"],
-              ["no-scores", "No scores"],
-              ...data.makers.slice(0, 6).map((m): [string, string] => [`maker:${m.maker}`, m.maker]),
-            ] as [string, string][]
-          ).map(([key, label]) => (
+          {mobileChips.map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -526,6 +745,14 @@ function LibraryView({
           <ul className="mt-4 divide-y rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             {filtered.map((t) => (
               <li key={t.cabinetGameId} className="flex items-center gap-3 px-3 py-2.5" style={{ borderColor: "var(--border)" }}>
+                {t.thumbUrl && (
+                  <img
+                    src={t.thumbUrl}
+                    alt=""
+                    className="h-14 w-10 shrink-0 rounded object-cover"
+                    loading="lazy"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={() => onOpen(t)}
@@ -537,6 +764,7 @@ function LibraryView({
                     {[t.maker, t.year].filter(Boolean).join(" · ")}
                     {t.bestScore !== null ? ` · Top ${fmtScore(t.bestScore)}${t.bestInitials ? ` (${t.bestInitials})` : ""}` : " · No scores yet"}
                   </span>
+                  <BadgeRow badges={t.badges} />
                 </button>
                 <button
                   type="button"
@@ -805,12 +1033,32 @@ function DetailOverlay({
           </>
         ) : (
           <>
+            {t.thumbUrl && (
+              <div
+                className="mb-3 h-72 overflow-hidden rounded-lg"
+                style={{ background: "#060a14" }}
+              >
+                <img
+                  src={t.thumbUrl}
+                  alt={`Playfield of ${t.name}`}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            )}
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-display text-3xl leading-tight font-semibold tracking-wide uppercase">{t.name}</h3>
                 <p className="text-sm" style={{ color: "var(--dim)" }}>
                   {[t.maker, t.year].filter(Boolean).join(" · ") || "Maker and year not reported by the cabinet"}
                 </p>
+                <BadgeRow badges={t.badges} />
+                {(t.lastPlayedAt || t.addedAt) && (
+                  <p className="mt-1.5 text-xs" style={{ color: "var(--dim)" }}>
+                    {t.lastPlayedAt ? `Last played ${fmtTime(t.lastPlayedAt)}` : ""}
+                    {t.lastPlayedAt && t.addedAt ? " · " : ""}
+                    {t.addedAt ? `Added ${fmtTime(t.addedAt)}` : ""}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -907,10 +1155,19 @@ function DetailOverlay({
   );
 }
 
+type SyncRun = {
+  startedAt: number;
+  prevSuccessAt: string | null;
+  prevAttemptAt: string | null;
+  spawnAttemptAt: string | null;
+};
+
 export function App() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"library" | "stats" | "selfhost">("library");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [syncRun, setSyncRun] = useState<SyncRun | null>(null);
+  const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
   const { playState, setPlayState, play } = usePlayController(() => {
     void queryClient.invalidateQueries({ queryKey: ["library"] });
   });
@@ -918,7 +1175,7 @@ export function App() {
   const library = useQuery({
     queryKey: ["library"],
     queryFn: () => api.getLibrary({}),
-    refetchInterval: 15000,
+    refetchInterval: syncRun ? 3000 : 15000,
   });
   const stats = useQuery({
     queryKey: ["stats"],
@@ -938,10 +1195,72 @@ export function App() {
       void queryClient.invalidateQueries({ queryKey: ["library"] });
       void queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
+    onError: (err) => {
+      setSyncRun(null);
+      setSyncNote({
+        ok: false,
+        text: err instanceof Error ? err.message : "The sync could not be started.",
+      });
+    },
   });
 
   const status = library.data?.status;
   const sync = library.data?.sync;
+
+  // Watch a manual sync until the pull lands: success when the
+  // stored lastSuccessAt advances past the click, failure when a
+  // completed attempt (a second, later attempt stamp) carries an
+  // error. The first new attempt stamp is just the sync starting.
+  useEffect(() => {
+    if (!syncRun || !sync) return;
+    if (sync.lastSuccessAt !== null && sync.lastSuccessAt !== syncRun.prevSuccessAt) {
+      const added = sync.lastAddedTables + sync.lastAddedScores;
+      setSyncNote({
+        ok: true,
+        text:
+          added === 0
+            ? "Sync complete. Everything on the cabinet was already saved here."
+            : `Sync complete. Added ${plural(sync.lastAddedTables, "new table")} and ${plural(sync.lastAddedScores, "new score")}.`,
+      });
+      setSyncRun(null);
+      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+      return;
+    }
+    if (sync.lastAttemptAt !== null && sync.lastAttemptAt !== syncRun.prevAttemptAt) {
+      if (syncRun.spawnAttemptAt === null) {
+        setSyncRun({ ...syncRun, spawnAttemptAt: sync.lastAttemptAt });
+      } else if (sync.lastAttemptAt !== syncRun.spawnAttemptAt && sync.lastError) {
+        setSyncNote({ ok: false, text: `Sync failed: ${sync.lastError}` });
+        setSyncRun(null);
+      }
+    }
+  }, [syncRun, sync, queryClient]);
+
+  // A sync that takes too long keeps running in the background;
+  // stop blocking the button and say so.
+  useEffect(() => {
+    if (!syncRun) return;
+    const t = setTimeout(() => {
+      setSyncRun(null);
+      setSyncNote({
+        ok: true,
+        text: "Sync is taking a while. It keeps running in the background and the page updates when it lands.",
+      });
+    }, 120000);
+    return () => clearTimeout(t);
+  }, [syncRun]);
+
+  const startSync = () => {
+    setSyncNote(null);
+    setSyncRun({
+      startedAt: Date.now(),
+      prevSuccessAt: sync?.lastSuccessAt ?? null,
+      prevAttemptAt: sync?.lastAttemptAt ?? null,
+      spawnAttemptAt: null,
+    });
+    syncMutation.mutate();
+  };
+  const syncing = syncRun !== null || syncMutation.isPending;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)", color: "var(--text)" }}>
@@ -977,13 +1296,14 @@ export function App() {
             {status && <StatusPill status={status} />}
             <button
               type="button"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-              aria-label="Sync library from cabinet"
-              className="rounded-md border px-3 py-1.5 text-xs font-bold disabled:opacity-50"
-              style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
+              onClick={startSync}
+              disabled={syncing}
+              aria-label="Sync with the pinball cabinet"
+              className="flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm font-bold disabled:opacity-60"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
             >
-              {syncMutation.isPending ? "Syncing…" : "Sync"}
+              <SyncGlyph spinning={syncing} />
+              {syncing ? "Syncing…" : "Sync"}
             </button>
           </div>
         </div>
@@ -1000,12 +1320,40 @@ export function App() {
 
       <main className="mx-auto max-w-7xl px-3 pt-4 pb-10 sm:px-4">
         <PlayBanner playState={playState} onDismiss={() => setPlayState({ kind: "idle" })} />
-        {sync && sync.state !== "never" && (
-          <p className="mb-3 text-xs" style={{ color: "var(--dim)" }}>
-            {sync.state === "ok"
-              ? `Library pulled from the cabinet ${fmtTime(sync.lastSuccessAt)} · ${sync.tableCount} tables · ${sync.scoreCount} scores`
-              : `Last pull failed ${fmtTime(sync.lastAttemptAt)}: ${sync.lastError ?? "cabinet unreachable"}. Showing the last good pull.`}
+        {syncing ? (
+          <p className="mb-3 text-xs font-semibold" role="status" style={{ color: "var(--cyan)" }}>
+            Syncing with the cabinet… adding anything new or missing, then the page shows everything the cabinet has.
           </p>
+        ) : syncNote ? (
+          <div
+            className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold"
+            role="status"
+            style={{ color: syncNote.ok ? "var(--green)" : "var(--red)" }}
+          >
+            <span>{syncNote.text}</span>
+            <button
+              type="button"
+              onClick={() => setSyncNote(null)}
+              aria-label="Dismiss sync message"
+              className="px-1 text-sm leading-none"
+              style={{ color: "var(--dim)" }}
+            >
+              ×
+            </button>
+          </div>
+        ) : (
+          sync &&
+          sync.state !== "never" && (
+            <p className="mb-3 text-xs" style={{ color: "var(--dim)" }}>
+              {sync.state === "ok"
+                ? `Library pulled from the cabinet ${fmtTime(sync.lastSuccessAt)} · ${sync.tableCount} tables · ${sync.scoreCount} scores${
+                    sync.lastAddedTables + sync.lastAddedScores > 0
+                      ? ` · last sync added ${plural(sync.lastAddedTables, "table")} and ${plural(sync.lastAddedScores, "score")}`
+                      : ""
+                  }`
+                : `Last pull failed ${fmtTime(sync.lastAttemptAt)}: ${sync.lastError ?? "cabinet unreachable"}. Showing the last good pull.`}
+            </p>
+          )
         )}
 
         {tab === "library" &&
