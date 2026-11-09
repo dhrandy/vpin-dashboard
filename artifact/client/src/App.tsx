@@ -24,19 +24,72 @@ const COMPOSE_YAML = `services:
     image: python:3.12-slim
     container_name: vpin-dashboard
     restart: unless-stopped
-    command: python3 /app/server.py
     ports:
       - "8745:8080"
     environment:
-      # Set both of these in Dockhand Environment.
+      # Set these in Dockhand Environment. None of them are stored
+      # in the repo or in this file.
       # VPIN_BRIDGE_URL is your vpin-bridge address on your network.
       # VPIN_API_KEY is the same key the bridge uses (its API_KEY).
+      # GITHUB_TOKEN lets the container pull the app files from the
+      # private dhrandy/vpin-dashboard repo: a fine-grained token
+      # with read-only Contents access to that one repo is enough.
       VPIN_BRIDGE_URL: \${VPIN_BRIDGE_URL}
       VPIN_API_KEY: \${VPIN_API_KEY}
+      GITHUB_TOKEN: \${GITHUB_TOKEN:-}
+      GIT_REPO: \${GIT_REPO:-https://github.com/dhrandy/vpin-dashboard.git}
+      GIT_BRANCH: \${GIT_BRANCH:-main}
       PORT: "8080"
     volumes:
-      - /DATA/AppData/vpin-dashboard/app:/app
+      # The container pulls the repo into this folder itself: it
+      # clones on first start and pulls the latest files on every
+      # restart, so no app files are ever copied by hand. The
+      # folder ends up holding the repo checkout (server code under
+      # app/ inside it). /data keeps runtime data across updates.
+      - /DATA/AppData/vpin-dashboard/app:/code
       - /DATA/AppData/vpin-dashboard/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        if ! command -v git >/dev/null 2>&1; then
+          apt-get update -qq && apt-get install -y -qq git ca-certificates || true
+        fi
+        BRANCH="$$GIT_BRANCH"
+        if [ -z "$$BRANCH" ]; then BRANCH=main; fi
+        REPO="$$GIT_REPO"
+        if [ -z "$$REPO" ]; then REPO="https://github.com/dhrandy/vpin-dashboard.git"; fi
+        if [ -n "$$GITHUB_TOKEN" ]; then
+          REPO="https://x-access-token:$$GITHUB_TOKEN@github.com/dhrandy/vpin-dashboard.git"
+        fi
+        if [ -d /code/.git ]; then
+          echo "vpin-dashboard: pulling the latest app files from GitHub..."
+          git -C /code remote set-url origin "$$REPO" || true
+          if git -C /code fetch --depth 1 origin "$$BRANCH"; then
+            git -C /code reset --hard "origin/$$BRANCH" || true
+          else
+            echo "vpin-dashboard: the pull failed, starting with the files already in the app folder."
+          fi
+        elif [ -f /code/app/server.py ] || [ -f /code/server.py ]; then
+          echo "vpin-dashboard: app files found without a git checkout, using them as-is. To switch to automatic pulls, empty the app folder and restart the stack."
+        elif command -v git >/dev/null 2>&1; then
+          echo "vpin-dashboard: first start, pulling the app files from GitHub..."
+          if git clone --depth 1 --branch "$$BRANCH" "$$REPO" /tmp/vpin-clone; then
+            cp -a /tmp/vpin-clone/. /code/
+            rm -rf /tmp/vpin-clone
+          else
+            echo "vpin-dashboard: could not pull the files from GitHub. The repo is private, so set GITHUB_TOKEN in Dockhand Environment to a read-only token for it, then restart the stack." >&2
+            exit 1
+          fi
+        fi
+        if [ -f /code/app/server.py ]; then
+          exec python3 /code/app/server.py
+        fi
+        if [ -f /code/server.py ]; then
+          exec python3 /code/server.py
+        fi
+        echo "vpin-dashboard: server.py was not found after pulling the files." >&2
+        exit 1
 `;
 
 function fmtScore(n: number | null): string {
@@ -965,16 +1018,18 @@ function SelfHostView() {
     <div className="mx-auto max-w-3xl">
       <h2 className="font-display text-3xl font-semibold tracking-wide uppercase">Run it on your NAS</h2>
       <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--dim)" }}>
-        This same library and stats app ships as a self-hosted package in the private GitHub repo dhrandy/vpin-dashboard
-        (full source plus this Docker Compose setup). On the NAS it runs under Dockhand like your
-        other apps, talks straight to your vpin bridge, and Play launches tables on the cabinet
-        through VPin Studio, same as here.
+        This same library and stats app ships as a self-hosted package in the private GitHub repo dhrandy/vpin-dashboard.
+        The Docker stack pulls all the files itself: on first start the container clones the repo, and on every
+        restart it pulls the latest files before the server starts, so nothing is ever copied to the NAS by hand.
+        On the NAS it runs under Dockhand like your other apps, talks straight to your vpin bridge, and Play
+        launches tables on the cabinet through VPin Studio, same as here.
       </p>
       <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm leading-relaxed">
-        <li>Copy the repo's <code>app/</code> files (server.py and the web UI) into <code>/DATA/AppData/vpin-dashboard/app</code> on the NAS.</li>
-        <li>Create the stack in Dockhand from the compose file below.</li>
-        <li>In Dockhand Environment, set <code>VPIN_BRIDGE_URL</code> to your vpin-bridge address and <code>VPIN_API_KEY</code> to the same key the bridge uses. Neither value is stored in the repo or this page.</li>
-        <li>Start the stack, then open the app on port 8745.</li>
+        <li>Create the stack in Dockhand from the compose file below. That is the only file you handle.</li>
+        <li>In Dockhand Environment, set <code>VPIN_BRIDGE_URL</code> to your vpin-bridge address and <code>VPIN_API_KEY</code> to the same key the bridge uses.</li>
+        <li>Also set <code>GITHUB_TOKEN</code> to a GitHub fine-grained token with read-only Contents access to the private dhrandy/vpin-dashboard repo, so the container can pull the app files itself. None of these values are stored in the repo or this page.</li>
+        <li>Start the stack. The container pulls the app files from GitHub on its own, then open the app on port 8745.</li>
+        <li>To update later, just restart the stack: it pulls the newest files first, no rebuild and no copying. An older manual install keeps running as-is; empty the <code>app</code> folder and restart once to switch it to automatic pulls.</li>
       </ol>
       <div className="mt-5 overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <div className="flex items-center justify-between border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
@@ -1003,7 +1058,7 @@ function SelfHostView() {
         <pre className="overflow-x-auto p-3 text-xs leading-relaxed">{COMPOSE_YAML}</pre>
       </div>
       <p className="mt-3 text-xs" style={{ color: "var(--dim)" }}>
-        CasaOS-style host paths, official Python image, no Dockerfile: Dockhand compose-only, matching how your other stacks run.
+        CasaOS-style host paths, official Python image, no Dockerfile: Dockhand compose-only, matching how your other stacks run. The container installs git on first start only so it can pull the repo; after that, restarts just pull and start.
       </p>
     </div>
   );
