@@ -3,16 +3,69 @@ services:
     image: python:3.12-slim
     container_name: vpin-dashboard
     restart: unless-stopped
-    command: python3 /app/server.py
     ports:
       - "8745:8080"
     environment:
-      # Set both of these in Dockhand Environment.
+      # Set these in Dockhand Environment. None of them are stored
+      # in the repo or in this file.
       # VPIN_BRIDGE_URL is your vpin-bridge address on your network.
       # VPIN_API_KEY is the same key the bridge uses (its API_KEY).
+      # GITHUB_TOKEN lets the container pull the app files from the
+      # private dhrandy/vpin-dashboard repo: a fine-grained token
+      # with read-only Contents access to that one repo is enough.
       VPIN_BRIDGE_URL: ${VPIN_BRIDGE_URL}
       VPIN_API_KEY: ${VPIN_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GIT_REPO: ${GIT_REPO:-https://github.com/dhrandy/vpin-dashboard.git}
+      GIT_BRANCH: ${GIT_BRANCH:-main}
       PORT: "8080"
     volumes:
-      - /DATA/AppData/vpin-dashboard/app:/app
+      # The container pulls the repo into this folder itself: it
+      # clones on first start and pulls the latest files on every
+      # restart, so no app files are ever copied by hand. The
+      # folder ends up holding the repo checkout (server code under
+      # app/ inside it). /data keeps runtime data across updates.
+      - /DATA/AppData/vpin-dashboard/app:/code
       - /DATA/AppData/vpin-dashboard/data:/data
+    command:
+      - sh
+      - -c
+      - |
+        if ! command -v git >/dev/null 2>&1; then
+          apt-get update -qq && apt-get install -y -qq git ca-certificates || true
+        fi
+        BRANCH="$$GIT_BRANCH"
+        if [ -z "$$BRANCH" ]; then BRANCH=main; fi
+        REPO="$$GIT_REPO"
+        if [ -z "$$REPO" ]; then REPO="https://github.com/dhrandy/vpin-dashboard.git"; fi
+        if [ -n "$$GITHUB_TOKEN" ]; then
+          REPO="https://x-access-token:$$GITHUB_TOKEN@github.com/dhrandy/vpin-dashboard.git"
+        fi
+        if [ -d /code/.git ]; then
+          echo "vpin-dashboard: pulling the latest app files from GitHub..."
+          git -C /code remote set-url origin "$$REPO" || true
+          if git -C /code fetch --depth 1 origin "$$BRANCH"; then
+            git -C /code reset --hard "origin/$$BRANCH" || true
+          else
+            echo "vpin-dashboard: the pull failed, starting with the files already in the app folder."
+          fi
+        elif [ -f /code/app/server.py ] || [ -f /code/server.py ]; then
+          echo "vpin-dashboard: app files found without a git checkout, using them as-is. To switch to automatic pulls, empty the app folder and restart the stack."
+        elif command -v git >/dev/null 2>&1; then
+          echo "vpin-dashboard: first start, pulling the app files from GitHub..."
+          if git clone --depth 1 --branch "$$BRANCH" "$$REPO" /tmp/vpin-clone; then
+            cp -a /tmp/vpin-clone/. /code/
+            rm -rf /tmp/vpin-clone
+          else
+            echo "vpin-dashboard: could not pull the files from GitHub. The repo is private, so set GITHUB_TOKEN in Dockhand Environment to a read-only token for it, then restart the stack." >&2
+            exit 1
+          fi
+        fi
+        if [ -f /code/app/server.py ]; then
+          exec python3 /code/app/server.py
+        fi
+        if [ -f /code/server.py ]; then
+          exec python3 /code/server.py
+        fi
+        echo "vpin-dashboard: server.py was not found after pulling the files." >&2
+        exit 1
