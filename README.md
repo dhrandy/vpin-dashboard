@@ -6,6 +6,16 @@ A self-hosted pinball library and stats dashboard for a cabinet running VPin Stu
 
 **Alpha software.** Features, data formats and setup may change. Back up the persistent data volume before updates. Test on your private network before considering remote access.
 
+## Requirements
+
+- A cabinet running VPin Studio, with [vpin-bridge](https://github.com/dhrandy/vpin-bridge) deployed and configured first. The dashboard requires the bridge; it does not connect directly to VPin Studio.
+- Docker with Docker Compose, persistent storage, and private network access from the dashboard to the bridge.
+- Trusted HTTPS for dashboard sign-in, including on your local network. Keep the bridge and cabinet private.
+
+## Why two parts?
+
+The dashboard provides the library, stats, accounts and browser interface. [vpin-bridge](https://github.com/dhrandy/vpin-bridge) provides a small API authenticated by an API key, so the dashboard and authorized agents or scripts can read the cabinet's table information without running on the cabinet or accessing its filesystem directly. The bridge runs on a Docker host on your private network and talks to VPin Studio Server on the cabinet. VPin Studio handles cabinet-local files and media. Keeping the API separate lets agents use it without depending on the dashboard interface.
+
 ## Features
 
 - Library with playfield previews, search, filters, full table names, play counts and high scores.
@@ -23,7 +33,7 @@ A self-hosted pinball library and stats dashboard for a cabinet running VPin Stu
 - Install on phones over HTTPS: Android browsers can offer Install app, and iPhone/iPad Safari supports Share > Add to Home Screen. Settings explains both. The generic app icon/name contain no cabinet details. The service worker is network-only: it creates no cache and does not intercept API, login or page requests. Internet access and sign-in are still required.
 - Sync status lives beside Sync, not as loose header lines. A separate status target opens the desktop popover without starting a Sync; the phone/tablet menu shows the panel below Sync. The indicator changes shape/color for unavailable items, active jobs and completion. Escape or an outside click closes the desktop popover.
 - Compact header lights use different shapes for idle, busy, offline, unknown and stale, with a Status key in Settings and accessible labels. Admin Exit table appears at the top only while Studio reports an active table, and requires confirmation, and can force-close the table and frontend, losing an unsaved game. Both dashboard and bridge revalidate the exact reported session and serialize Exit/Play. An accepted exit is not proof every process stopped; the dashboard waits for fresh reported status. It never auto-launches another table or retries an uncertain exit. Both containers need the matching update.
-- Tap a playfield in the details dialog to enlarge the existing 960px-wide cached detail image. Tap the image, Close, or Esc to return. No additional cabinet read or image copy is needed.
+- Tap a playfield in the details dialog to enlarge the existing 960px-wide cached detail image. Tap the image, the top-right X, or Esc to return. Table details also have a matching top-right X and a bottom Close button. No additional cabinet read or image copy is needed.
 - "No B2S or PUP" means the export explicitly reports neither a backglass nor a PUP pack. A reported PUP suppresses the flag. Unknown fields are not treated as absent. Details explain this is not proof of a launch error.
 - Phone/tablet hamburger menu and desktop sidebar.
 
@@ -33,7 +43,7 @@ The existing "Top rated" category means the ten highest numeric table scores, no
 
 Use `docker-compose.yml` with the official Python image. There is no Dockerfile or build step.
 
-1. Deploy vpin-bridge first, using its README, and keep the bridge/cabinet private.
+1. Deploy and configure [vpin-bridge](https://github.com/dhrandy/vpin-bridge) first, following its README. It is required. Confirm the dashboard host can reach it privately, and use its base address and API key in step 4. Keep the bridge/cabinet private.
 2. In Dockhand, create a Compose stack and paste the supplied compose file. In another Compose manager, use its stack editor; from a shell, save it as `docker-compose.yml` and use `docker compose up -d`.
 3. Change the two host volume paths to persistent folders on your Docker host. Keep `/code` and `/data` as the container targets.
 4. Set the environment values below using the manager's Environment editor or exported shell variables. No `.env` file is supplied or required.
@@ -159,7 +169,7 @@ Collection is enabled by default. In Admin, Background collection can be turned 
 - When offline or the status/pull is incomplete, checks back off at 1, 2, 5, 10 and then 15 minutes, capped there. There are no image downloads, launches or cabinet writes from this worker.
 - A good online observation resets backoff; the first idle observation catches up immediately. This is not instant power-on detection: a cabinet coming online can wait up to the current 15-minute backoff. Explicit Refresh requests a check sooner; manual pulls are coalesced/rate-limited to once per 30 seconds and never run in parallel with the collector.
 - Dashboard status requests have a 5-second network timeout; the bridge's cabinet request can continue until its own 15-second timeout. Bulk requests use the normal bridge timeouts.
-- The latest good library remains available offline with its saved-data timestamp. Status older than 125 seconds is unknown, not falsely online. Admin shows last check, last complete pull, pending/backoff state and archive size/counts.
+- The latest good library remains available offline; Admin shows collection timestamps. Status older than 125 seconds is unknown, not falsely online. Admin shows last check, last complete pull, pending/backoff state and archive size/counts.
 - `/data/observations/observations.sqlite3` stores the latest library plus changed compressed library snapshots and observed status transitions. Unchanged polls do not append duplicate history rows. There is no archive browser/export UI yet.
 - History is sampled, not a guaranteed record of every game, session duration or score. Polls may miss short sessions; busy deferral relies on Studio's own cumulative data surviving until the next successful pull.
 - History expires at 90 days, 10,000 rows or 25 MiB of compressed archived payload, whichever limit removes old rows first. The 25 MiB is not a whole-database cap: the latest snapshot, indexes and SQLite free-page overhead add space. Individual snapshots are limited to 4 MiB raw / 2 MiB compressed. Back up this database with the rest of `/data` and keep it private.
@@ -212,7 +222,7 @@ AI-assisted development was used for this project. The maintainer reviews and de
 
 Modal/image reads accept only IDs in the saved library. Per-table background work is capped, deduplicated and byte-bounded; cached payloads stay private in the data volume. Image decoding is limited to PNG/JPEG with byte/pixel limits. Pillow 13.0.0 is pinned in a versioned private directory so an older persisted copy is not silently reused. Repository ignore rules exclude common runtime databases, logs and environment files.
 
-Routine reads pause while the page is hidden or the browser reports offline. Returning to the page or reconnecting requests one refresh; otherwise visible pages read saved dashboard data every 30 seconds. Overlapping refresh cycles are coalesced. A temporary read failure keeps the last library, personal favourites and instructions, names the failed read quietly in the saved-data line, and clears that notice after a successful cycle. Losing contact with the dashboard means cabinet status unknown, not a claim the cabinet itself is offline.
+Routine reads pause while the page is hidden or the browser reports offline. Returning to the page or reconnecting requests one refresh; otherwise visible pages read saved dashboard data every 30 seconds. Overlapping refresh cycles are coalesced. A temporary read failure keeps the last library, personal favourites and instructions. Cabinet availability is shown only by the header light and its accessible label, with the Settings key; no cabinet-unavailable or saved-cabinet timestamp line is added above the library. Other failed reads can still identify the missing data, and that notice clears after a successful cycle. Losing contact with the dashboard means cabinet status unknown, not a claim the cabinet itself is offline.
 
 Manual-action failures name the operation. Network failures after a write say its outcome could not be confirmed: check current state before trying again. Play and other writes are never replayed automatically. These messages do not identify whether the underlying cause was the phone connection, proxy or server.
 

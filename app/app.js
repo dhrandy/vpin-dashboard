@@ -273,17 +273,17 @@ function renderLibrary() {
   const canPlay = CURRENT_USER?.role === "admin" && STATUS.state === "online" && !STATUS.gamePlaying;
   $("grid").innerHTML = rows.map((t) => `
     <article class="card">
-      <button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
+      <div class="artwrap"><button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
         ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}?v=2&r=${encodeURIComponent(t.mediaRevision || "")}" alt="" loading="lazy">` : ""}
         ${(t.attentionReasons||[]).length ? `<span class="flag" title="${esc(t.attentionReasons.join('; '))}. Open table details for context.">${esc(t.attentionReasons[0])}${t.attentionReasons.length>1?' +'+(t.attentionReasons.length-1):''}</span>` : ""}
 
-      </button>
+      </button>${canLaunch(t) ? `<button class="play" data-play="${t.gameId}" ${canPlay ? "" : "disabled"} aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : ""}</div>
       ${heartButton(t)}
       <div class="cardbody">
         <p class="tname">${esc(t.name)}</p>
         <p class="meta" title="${esc(tableMeta(t))}" aria-label="${esc(tableMeta(t))}">${t.maker ? `<span class="meta-maker">${esc(t.maker)}</span><span class="meta-fixed">·</span>` : ""}${t.year ? `<span class="meta-fixed">${esc(t.year)} ·</span>` : ""}<span class="meta-fixed">${esc(playCountLabel(t))}</span></p>
         ${SHOW_PLAY_TIME?`<p class="playtime" title="Cumulative play time reported by Studio's frontend analytics, not the duration of the last session">${esc(totalTimeLabel(t))}</p>`:''}
-        <div class="cardfeatures">${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}${canLaunch(t) ? `<button class="play" data-play="${t.gameId}" ${canPlay ? "" : "disabled"} aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : ""}</div>
+        <div class="cardfeatures">${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}</div>
       </div>
       <div class="cardfoot">
         <span class="top">${t.bestScore !== null ? `Top${t.bestInitials ? " · " + esc(t.bestInitials) : ""} · <b>${fmt(t.bestScore)}</b>` : "No scores yet"}</span>
@@ -352,7 +352,10 @@ async function openDetail(gameId) {
   const entry = bestByTable().get(gameId);
   const d = $("detail");
   d.innerHTML = `
-    ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
+    <div class="detail-media ${DATA.thumbsEnabled?'':'no-preview'}">
+      <button id="detail-close-top" class="modal-close" type="button" aria-label="Close table details" title="Close table details"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
+    </div>
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
     <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
@@ -367,10 +370,11 @@ async function openDetail(gameId) {
   MODAL_GENERATION++;MODAL_UNSAVED={};
   d.dataset.gameId = String(gameId);
   d.showModal();bindHearts(d);
-  d.querySelector(".dimg")?.addEventListener("error",e=>e.target.closest("button").remove(),{once:true});
-  d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>{const box=$('playfield-lightbox');box.innerHTML=`<button class="lightbox-close" type="button">Close enlarged playfield</button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>`;box.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>box.close()));box.showModal();});
+  d.querySelector(".dimg")?.addEventListener("error",e=>{e.target.closest(".detail-media").classList.add("no-preview");e.target.closest("button").remove();},{once:true});
+  d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>{const box=$('playfield-lightbox');box.innerHTML=`<button class="lightbox-close modal-close" type="button" aria-label="Close enlarged playfield" title="Close enlarged playfield"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>`;box.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>box.close()));box.showModal();});
   loadScoreHistory(gameId);
   $("detail-close").addEventListener("click", () => d.close());
+  $("detail-close-top").addEventListener("click", () => d.close());
   $("detail-play")?.addEventListener("click", () => { d.close(); play(gameId); });
   loadModalData('details',gameId);
 }
@@ -492,11 +496,12 @@ async function performLoad(manual,refresh=false) {
     btn.disabled = true; btn.classList.add("syncing"); label.textContent = "Syncing…";
     note.classList.remove("err"); note.textContent = "Syncing with the cabinet…";
   }
+  if(!manual){note.textContent='';note.classList.remove('err');}
   let error = null;const readIssues=[];
   try {
     const response=await fetch("/api/library"+((manual||refresh)?"?refresh=1":""));if(!response.ok)throw new Error('Library refresh unavailable (HTTP '+response.status+').');const res=await response.json();
     if (res && res.ok){ DATA = res;
-      if(res.collection){const age=(Date.now()/1000-res.collection.capturedAt)/60;const stamp=new Date(res.collection.capturedAt*1000).toLocaleString();$("sync-note").textContent='Saved cabinet data · '+stamp+(age>10?' · may be out of date':'');}
+      note.textContent='';
     }
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
@@ -506,7 +511,6 @@ async function performLoad(manual,refresh=false) {
   updateModalCache();
   if(!await loadInstructions())readIssues.push('Cabinet instructions unavailable');
   if(error)readIssues.unshift('Library refresh unavailable');
-  if(STATUS.state==='unknown')readIssues.push('Cabinet status unavailable');
   if(readIssues.length){note.textContent=readIssues.join(' · ')+'. Keeping saved data; retrying when connected.';note.classList.remove('err');}else note.classList.remove('err');
   if (manual) {
     btn.disabled = false; btn.classList.remove("syncing"); label.textContent = "Sync";
