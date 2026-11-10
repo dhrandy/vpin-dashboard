@@ -105,3 +105,42 @@ class BundledListTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class MessyNames(unittest.TestCase):
+    def setUp(self):
+        self.curated = toplist.load_curated()
+        self.by = {e['name']: e for e in self.curated}
+
+    def match_one(self, table):
+        return toplist.match(self.curated, [table])
+
+    def test_author_version_tail(self):
+        got = self.match_one({'gameId': 1, 'name': 'Attack from Mars (Bally Midway 1995) g5k 1.0', 'maker': None, 'year': None})
+        self.assertEqual([r['name'] for r in got], ['Attack from Mars'])
+
+    def test_filename_style_with_labels(self):
+        got = self.match_one({'gameId': 1, 'name': 'FunHouse (Williams 1990) SLAMT1LT v1.2 VPX', 'maker': 'Williams', 'year': 1990})
+        self.assertEqual([r['name'] for r in got], ['Funhouse'])
+
+    def test_word_order_inverted(self):
+        got = self.match_one({'gameId': 1, 'name': 'Addams Family, The (Bally 1992)', 'maker': 'Bally', 'year': 1992})
+        self.assertEqual([r['name'] for r in got], ['The Addams Family'])
+
+    def test_edition_skips_maker_year_parens(self):
+        got = toplist.match(self.curated, [{'gameId': 1, 'name': 'Medieval Madness (Remake) (Williams 1997)', 'maker': 'Williams', 'year': 1997}])
+        self.assertEqual(got[0]['edition'], '(Remake)')
+
+    def test_ambiguous_fallback_skipped(self):
+        tables = [
+            {'gameId': 1, 'name': 'Attack from Mars g5k', 'maker': None, 'year': None},
+            {'gameId': 2, 'name': 'Attack from Mars VPX dozer', 'maker': None, 'year': None},
+        ]
+        self.assertEqual(toplist.match(self.curated, tables), [])
+
+    def test_maker_year_disagree_still_skipped(self):
+        got = self.match_one({'gameId': 1, 'name': 'FunHouse (Williams 1990) VPX', 'maker': 'Stern', 'year': 2015})
+        self.assertEqual(got, [])
+
+    def test_missing_year_matches_on_unique_plus_maker(self):
+        got = self.match_one({'gameId': 1, 'name': 'Fish Tales VPX Dozer316', 'maker': 'Williams', 'year': None})
+        self.assertEqual([r['name'] for r in got], ['Fish Tales'])
