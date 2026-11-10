@@ -40,6 +40,7 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER PRIMARY KEY, colorblind INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS favourites (user_id INTEGER NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY(user_id,game_id));
                 CREATE TABLE IF NOT EXISTS hidden (user_id INTEGER NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY(user_id,game_id));
+                CREATE TABLE IF NOT EXISTS stats_sections (user_id INTEGER NOT NULL, section TEXT NOT NULL, PRIMARY KEY(user_id,section));
                 CREATE TABLE IF NOT EXISTS attempts (
                     bucket TEXT PRIMARY KEY, count INTEGER NOT NULL, until_at INTEGER NOT NULL);
             ''')
@@ -256,6 +257,22 @@ class AuthStore:
             else:
                 db.execute('DELETE FROM hidden WHERE user_id=? AND game_id=?',(user_id,game_id))
         return self.hidden(user_id)
+
+    STATS_SECTIONS = ('most', 'least', 'recent', 'tops', 'players', 'makers', 'decades')
+
+    def stats_sections(self, user_id):
+        with self.db() as db:
+            return [r[0] for r in db.execute('SELECT section FROM stats_sections WHERE user_id=? ORDER BY section',(user_id,))]
+
+    def set_stats_section(self,user_id,section,is_hidden):
+        if section not in self.STATS_SECTIONS:
+            raise AuthError('Unknown stats section.')
+        with self.lock,self.db() as db:
+            if is_hidden:
+                db.execute('INSERT OR IGNORE INTO stats_sections VALUES (?,?)',(user_id,section))
+            else:
+                db.execute('DELETE FROM stats_sections WHERE user_id=? AND section=?',(user_id,section))
+        return self.stats_sections(user_id)
 
     def set_favourite(self,user_id,game_id,saved):
         with self.lock,self.db() as db:

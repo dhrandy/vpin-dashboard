@@ -21,6 +21,8 @@ let FILTER = "all";
 let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let HIDDEN=new Set();
+let STATS_HIDDEN=new Set();
+const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"]];
 let HIDDEN_BUSY=false;
 let SHOW_HIDDEN=false;
 let SHOW_TIMER=true;
@@ -60,6 +62,21 @@ function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');
 setInterval(updateElapsed,1000);
 async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favorites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
 async function loadHidden(){const response=await fetch('/api/hidden');if(!response.ok)throw new Error('Hidden tables could not be loaded.');const result=await response.json();HIDDEN=new Set(result.gameIds);}
+async function loadStatsSections(){const response=await fetch('/api/stats-sections');if(!response.ok)throw new Error('Stats section settings could not be loaded.');const result=await response.json();STATS_HIDDEN=new Set(result.hidden);}
+async function toggleStatsSection(section,hidden){
+  try{const result=await apiPost('/api/stats-sections',{section,hidden});STATS_HIDDEN=new Set(result.hidden);}
+  catch(e){showBanner(e.message);return;}
+  renderStats();renderStatsSectionsPanel();
+}
+function renderStatsSectionsPanel(){
+  const list=$('stats-sections-list');if(!list)return;
+  list.innerHTML=STATS_SECTIONS.map(([key,label])=>`<label class="setting-toggle"><input type="checkbox" data-stats-section="${key}" ${STATS_HIDDEN.has(key)?'':'checked'}>${esc(label)}</label>`).join('');
+  list.querySelectorAll('[data-stats-section]').forEach(box=>box.addEventListener('change',async e=>{
+    const checkbox=e.target;checkbox.disabled=true;
+    await toggleStatsSection(checkbox.dataset.statsSection,!checkbox.checked);
+    checkbox.disabled=false;$('stats-sections-message').textContent='Saved to your account.';
+  }));
+}
 async function toggleHidden(gameId){
   if(HIDDEN_BUSY)return;HIDDEN_BUSY=true;document.querySelectorAll('[data-hide]').forEach(b=>b.disabled=true);
   const hiding=!HIDDEN.has(gameId);
@@ -357,20 +374,26 @@ function renderStats() {
   const nameOrder = (a, b) => a.name.localeCompare(b.name);
   const most = [...counted].filter((t) => t.playCount > 0).sort((a, b) => b.playCount - a.playCount || nameOrder(a, b)).slice(0, 10);
   const least = [...counted].sort((a, b) => a.playCount - b.playCount || nameOrder(a, b)).slice(0, 10);
-  const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></div>`).join("");
+  const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></div>`).join("");
   $("most-played").innerHTML = most.length ? playRows(most, true) : '<p class="muted">No positive play counts reported yet.</p>';
   $("least-played").innerHTML = least.length ? playRows(least, false) : '<p class="muted">Play counts are not available from the cabinet.</p>';
   const recent = statTables.filter((t) => t.lastPlayedAt && Number.isFinite(Date.parse(t.lastPlayedAt)))
     .sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt) || nameOrder(a, b)).slice(0, 10);
   const playedDate = (value) => new Date(value).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit"});
-  $("recent-tables").innerHTML = recent.length ? recent.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button><time class="rank-time" datetime="${esc(t.lastPlayedAt)}">${esc(playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
+  const playedAgo = (value) => {
+    const days = Math.floor((Date.parse(new Date().toDateString()) - Date.parse(new Date(value).toDateString())) / 86400000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return days + " days ago";
+    const weeks = Math.round(days / 7);
+    return weeks + (weeks === 1 ? " wk ago" : " wks ago");
+  };
+  $("recent-tables").innerHTML = recent.length ? recent.map((t) => `<div class="feed-item"><span class="feed-dot" aria-hidden="true"></span><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button><time class="feed-when" datetime="${esc(t.lastPlayedAt)}">${esc(playedAgo(t.lastPlayedAt) + " \u00b7 " + playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
   $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
   const max = tops[0]?.best || 1;
-  $("top-tables").innerHTML = tops.length ? tops.map((t, i) => `
-    <div class="row"><span>${i + 1}. ${esc(t.name)}${t.initials ? " · " + esc(t.initials) : ""}</span><strong style="color:var(--accent)">${fmt(t.best)}</strong></div>
-    <div class="bar"><i style="width:${Math.max(4, (t.best / max) * 100)}%"></i></div>`).join("") : '<p class="muted">No scores pulled from the cabinet yet.</p>';
+  $("top-tables").innerHTML = tops.length ? tops.map((t, i) => `<div class="score-row"><div class="row" style="padding:0"><span>${i + 1}. <button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${t.initials ? ` <span class="who">\u00b7 ${esc(t.initials)}</span>` : ""}</span><span class="pts">${fmt(t.best)}</span></div><div class="bar score-bar"><i style="width:${Math.max(4, (t.best / max) * 100)}%"></i></div></div>`).join("") : '<p class="muted">No scores pulled from the cabinet yet.</p>';
   const players = new Map();
   for (const v of best.values()) {
     if (!v.initials) continue;
@@ -378,14 +401,19 @@ function renderStats() {
     p.n++; p.best = Math.max(p.best, v.best); players.set(v.initials, p);
   }
   $("players").innerHTML = players.size ? [...players.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10)
-    .map(([ini, p], i) => `<div class="row"><span>${i + 1}. ${esc(ini)}</span><span class="muted">${p.n} table${p.n === 1 ? "" : "s"} topped · best ${fmt(p.best)}</span></div>`).join("")
+    .map(([ini, p], i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><span><span class="chip-ini">${esc(ini)}</span></span><span class="muted" style="text-align:right">${p.n} table${p.n === 1 ? "" : "s"} topped \u00b7 best ${fmt(p.best)}</span></div>`).join("")
     : '<p class="muted">No player initials in the cabinet scores yet.</p>';
-  $("makers").innerHTML = makers.size ? [...makers.entries()].sort((a, b) => b[1] - a[1])
-    .map(([m, c]) => `<div class="row"><span>${esc(m)}</span><span class="muted">${c}</span></div>`).join("")
+  const hbar = (entries, cls) => {
+    const peak = Math.max(1, ...entries.map(([, c]) => c));
+    return entries.map(([k, c]) => `<div class="hbar-row${cls}"><span>${esc(k)}</span><span class="hbar"><i style="width:${(c / peak) * 100}%"></i></span><span class="n">${c}</span></div>`).join("");
+  };
+  $("makers").innerHTML = makers.size ? hbar([...makers.entries()].sort((a, b) => b[1] - a[1]), " maker")
     : '<p class="muted">The cabinet did not report maker names.</p>';
-  $("decades").innerHTML = decades.size ? [...decades.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([d, c]) => `<div class="row"><span>The ${d}</span><span class="muted">${c}</span></div>`).join("")
+  $("decades").innerHTML = decades.size ? hbar([...decades.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([d, c]) => ["The " + d, c]), "")
     : '<p class="muted">The cabinet did not report table years.</p>';
+  document.querySelectorAll("#view-stats .panel[data-section]").forEach((panel) => {
+    panel.style.display = STATS_HIDDEN.has(panel.dataset.section) ? "none" : "";
+  });
 }
 
 async function openDetail(gameId) {
@@ -551,6 +579,9 @@ async function performLoad(manual,refresh=false) {
   } catch (e) { error = e.message; }
   try{await loadFavourites();}catch(e){readIssues.push('Personal favorites unavailable');}
   try{await loadHidden();}catch(e){readIssues.push('Hidden tables unavailable');}
+  try{await loadStatsSections();}catch(e){readIssues.push('Stats section settings unavailable');}
+  document.querySelectorAll('[data-section-hide]').forEach((b)=>b.addEventListener('click',()=>toggleStatsSection(b.dataset.sectionHide,true)));
+  renderStatsSectionsPanel();
   renderLibrary(); renderStats();
   await loadStatus();
   updateModalCache();

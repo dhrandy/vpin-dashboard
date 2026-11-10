@@ -841,6 +841,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200,{'ok':True,'gameIds':auth_store().favourites(self._session()['id'])})
         if path == '/api/hidden':
             return self._send(200,{'ok':True,'gameIds':auth_store().hidden(self._session()['id'])})
+        if path == '/api/stats-sections':
+            return self._send(200,{'ok':True,'hidden':auth_store().stats_sections(self._session()['id'])})
         if path == '/api/instructions':
             return self._send(200,read_instructions())
         if path == '/api/settings':
@@ -971,7 +973,7 @@ class Handler(BaseHTTPRequestHandler):
                 store = auth_store()
                 cookie = store.setup(body,self.client_address[0]) if path.endswith('/setup') else store.login(body.get('username'),body.get('password'),self.client_address[0])
                 return self._auth_reply(cookie)
-            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/hidden','/api/preferences'))
+            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/hidden','/api/stats-sections','/api/preferences'))
             if not session:
                 return
             if not self._csrf(session) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
@@ -1028,6 +1030,14 @@ class Handler(BaseHTTPRequestHandler):
                 if is_hidden and not any(t['gameId']==game_id for t in (COLLECTOR.library() if COLLECTOR else library_payload())['tables']):
                     raise AuthError('Table is not in the cabinet library.',404)
                 return self._send(200,{'ok':True,'gameIds':store.set_hidden(session['id'],game_id,is_hidden)})
+            if path == '/api/stats-sections':
+                section=body.get('section');is_hidden=body.get('hidden')
+                if type(section) is not str or section not in AuthStore.STATS_SECTIONS or type(is_hidden) is not bool:
+                    raise AuthError('Valid stats section and hidden state required.')
+                if set(body)!={'section','hidden'}:
+                    raise AuthError('Only stats section and hidden state are accepted.')
+                store=auth_store();store.personal_write_throttle(session['id'])
+                return self._send(200,{'ok':True,'hidden':store.set_stats_section(session['id'],section,is_hidden)})
             if path == '/api/settings':
                 name = body.get('name')
                 if public_text(name) != name:

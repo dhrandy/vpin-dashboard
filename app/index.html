@@ -125,9 +125,32 @@
   .play:disabled{opacity:.4;cursor:default}
   .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   @media(min-width:900px){.tiles{grid-template-columns:repeat(4,1fr)}}
-  .tile{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:14px}
-  .tile .v{color:var(--accent);font-size:30px;font-weight:700}
-  .tile .l{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+  .tile{border:1px solid var(--border);background:linear-gradient(180deg,var(--surface2),var(--surface));border-radius:12px;padding:16px 14px 13px;position:relative;overflow:hidden}
+  .tile::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),transparent 70%)}
+  .tile .v{color:var(--accent);font-size:clamp(26px,3.2vw,34px);font-weight:800;font-variant-numeric:tabular-nums;line-height:1.05}
+  .tile .l{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-top:6px}
+  .ph{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:6px}
+  .ph h3{margin:0;text-transform:uppercase;letter-spacing:.03em;font-size:15px}
+  .hidebtn{background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:6px;font-size:11px;font-weight:600;padding:4px 12px;min-height:44px;cursor:pointer;white-space:nowrap}
+  .hidebtn:hover{color:var(--text);border-color:var(--dim)}
+  .hidebtn:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+  .feed{display:flex;flex-direction:column}
+  .feed-item{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);align-items:center;font-size:14px}
+  .feed-item:last-child{border-bottom:0}
+  .feed-dot{width:8px;height:8px;border-radius:50%;background:var(--cyan)}
+  .feed-when{color:var(--dim);font-size:12px;white-space:nowrap;text-align:right}
+  .score-row{padding:8px 0 0;font-size:14px}
+  .score-row .who{color:var(--dim);font-size:12px}
+  .score-row .pts{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums}
+  .bar.score-bar{height:8px;background:#0d1830;margin:4px 0 12px}
+  .bar.score-bar i{background:linear-gradient(90deg,var(--accent),#b57e08)}
+  .hbar-row{display:grid;grid-template-columns:minmax(90px,150px) minmax(0,1fr) 34px;gap:10px;align-items:center;padding:5px 0;font-size:13px}
+  .hbar{height:14px;background:#0d1830;border-radius:4px;overflow:hidden}
+  .hbar i{display:block;height:100%;background:var(--cyan);border-radius:4px}
+  .hbar-row .n{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+  .hbar-row.maker .hbar i{background:var(--accent)}
+  .board .rank-row{grid-template-columns:26px minmax(0,1fr) auto}
+  .board .chip-ini{background:var(--surface2);color:var(--cyan);border-radius:4px;padding:2px 7px;font-size:12px;font-weight:700;letter-spacing:.05em}
   .panel{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:16px;margin-top:16px}
   .panel h3{margin:0 0 10px;text-transform:uppercase;letter-spacing:.03em}
   .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:14px;align-items:baseline}
@@ -139,18 +162,20 @@
   .stats-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:16px}
   .stats-grid>.panel{margin-top:0;min-width:0}
   @media(min-width:800px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(min-width:1600px){.stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .stats-grid-mid{grid-template-columns:minmax(0,1fr)}
+  @media(min-width:1600px){.stats-grid-mid{grid-template-columns:repeat(3,minmax(0,1fr))}}
   .stats-table{background:transparent;border:0;color:var(--text);font:inherit;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
   .stats-table:hover{color:var(--cyan)}
   .stats-table:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
-  .rank-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:48px;border-top:1px solid var(--border);padding:8px 0;font-size:14px}
-  .rank-row:first-child{border-top:0}
-  .rank-num{color:var(--dim);font-size:12px}
+  .rank-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:48px;border-bottom:1px solid var(--border);padding:10px 0;font-size:14px}
+  .rank-row:last-child{border-bottom:0}
+  .rank-num{color:var(--accent);font-weight:800;font-size:13px}
+  .tname2{font-weight:600}
   .rank-value{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
   .rank-value small{display:block;color:var(--dim);font-size:11px;font-weight:400}
   .rank-time{color:var(--dim);font-size:12px;text-align:right;max-width:115px}
-  .rank-bar{margin:6px 0 0;height:4px}
-  .bar.rank-bar i{background:var(--cyan)}
+  .bar.rank-bar{margin:6px 0 0;height:6px;background:#0d1830}
+  .bar.rank-bar i{background:linear-gradient(90deg,var(--cyan),#0e7490)}
   .panel-note{margin:-4px 0 12px;color:var(--dim);font-size:12px;line-height:1.5}
   .tile{min-width:0}
   .tile .v{overflow-wrap:anywhere;font-size:clamp(22px,3vw,30px)}
@@ -295,14 +320,18 @@
     <div class="stats-head"><h2>Cabinet stats</h2><p class="muted">Play counts and last-played dates reported by the cabinet. Sync to refresh.</p></div>
     <div class="tiles" id="tiles"></div>
     <div class="stats-grid">
-      <div class="panel"><h3>Top 10 most played</h3><p class="panel-note">Lifetime plays recorded by the cabinet.</p><div id="most-played"></div></div>
-      <div class="panel"><h3>Top 10 least played</h3><p class="panel-note">Including tables with zero recorded plays. Unknown counts are excluded.</p><div id="least-played"></div></div>
+      <div class="panel" data-section="most"><div class="ph"><h3>Top 10 most played</h3><button type="button" class="hidebtn" data-section-hide="most">Hide section</button></div><p class="panel-note">Lifetime plays recorded by the cabinet.</p><div id="most-played"></div></div>
+      <div class="panel" data-section="least"><div class="ph"><h3>Top 10 least played</h3><button type="button" class="hidebtn" data-section-hide="least">Hide section</button></div><p class="panel-note">Including tables with zero recorded plays. Unknown counts are excluded.</p><div id="least-played"></div></div>
     </div>
-    <div class="panel"><h3>Last 10 tables played</h3><p class="panel-note">Most recent distinct tables, not a session-by-session log. Cabinet local time.</p><div id="recent-tables"></div></div>
-    <div class="panel"><h3>Top tables by best score</h3><div id="top-tables"></div></div>
-    <div class="panel"><h3>Player leaderboard</h3><div id="players"></div></div>
-    <div class="panel"><h3>Tables by maker</h3><div id="makers"></div></div>
-    <div class="panel"><h3>Tables by decade</h3><div id="decades"></div></div>
+    <div class="stats-grid stats-grid-mid">
+      <div class="panel" data-section="recent"><div class="ph"><h3>Last 10 tables played</h3><button type="button" class="hidebtn" data-section-hide="recent">Hide section</button></div><p class="panel-note">Most recent distinct tables, not a session-by-session log. Cabinet local time.</p><div class="feed" id="recent-tables"></div></div>
+      <div class="panel" data-section="tops"><div class="ph"><h3>Top tables by best score</h3><button type="button" class="hidebtn" data-section-hide="tops">Hide section</button></div><div id="top-tables"></div></div>
+      <div class="panel board" data-section="players"><div class="ph"><h3>Player leaderboard</h3><button type="button" class="hidebtn" data-section-hide="players">Hide section</button></div><div id="players"></div></div>
+    </div>
+    <div class="stats-grid">
+      <div class="panel" data-section="makers"><div class="ph"><h3>Tables by maker</h3><button type="button" class="hidebtn" data-section-hide="makers">Hide section</button></div><div id="makers"></div></div>
+      <div class="panel" data-section="decades"><div class="ph"><h3>Tables by decade</h3><button type="button" class="hidebtn" data-section-hide="decades">Hide section</button></div><div id="decades"></div></div>
+    </div>
   </section>
   <section id="view-instructions" class="instructions-page" hidden><h2>Instructions</h2><div id="instructions-content" role="region" aria-label="Cabinet instructions"></div><p id="instructions-admin-note" class="muted" hidden>Edit instructions.md in the dashboard data volume, then tap Refresh. Supports headings, paragraphs, lists and fenced code blocks. Raw HTML and links display as text. Maximum 64 KB, UTF-8.</p></section>
   <section id="view-settings" class="instructions-page" hidden>
@@ -315,7 +344,8 @@
       <div class="status-key-row"><span class="status-key-icon light-stale" aria-hidden="true"></span><div>Stale<p>The saved status is more than 125 seconds old. Play stays blocked until a fresh idle check.</p></div></div>
     </div></div>
 <div class="panel"><h3>Display</h3><label class="setting-toggle"><input type="checkbox" id="colorblind-setting">Colorblind-friendly colors</label><p class="muted">Uses blue and orange instead of red and green. Hearts also change shape when saved, and cabinet status always includes a label. Saved to your account on this server, across devices.</p><label class="setting-toggle"><input type="checkbox" id="timer-setting" checked>Show elapsed table time</label><p class="muted">Time since VPin Studio detected this table launch, including pauses. Not ball-in-play time. Unavailable if the cabinet does not report a start time.</p><label class="setting-toggle"><input type="checkbox" id="playtime-setting" checked>Show total minutes on table cards</label><p class="muted">Cumulative play time reported by the cabinet frontend, not the last session. Requires the bridge analytics endpoint. Missing totals show Time unavailable.</p><label class="setting-toggle"><input type="checkbox" id="status-details-setting">Show detailed cabinet status</label><p class="muted">Adds last-checked age and crash guidance below the table banner. Off by default; compact mode keeps only a small dismiss control for admins.</p><label class="setting-toggle"><input type="checkbox" id="back-top-setting" checked>Show back-to-top button</label><p class="muted">Shows a floating arrow after you scroll down the Library. Saved to your account.</p><label class="setting-toggle"><input type="checkbox" id="show-hidden-setting">Show hidden tables in the library</label><p class="muted">Hidden tables stay out of counts, search, stats and playlists until you unhide them. Turn this on to see them dimmed with a Hidden badge, for example to unhide one from its table details.</p><p id="preference-message" class="muted" role="status"></p></div>
-<div class="panel" id="hidden-panel"><h3>Hidden tables</h3><p class="muted" id="hidden-count">Loading hidden tables…</p><p class="muted">Hiding only affects this dashboard. Nothing changes on the cabinet, and hidden tables can still be launched from other frontends. Unhide one below, or select several and use Unhide selected.</p><div id="hidden-list"></div><div class="hidden-actions"><button type="button" class="accountbtn" id="hidden-unhide-selected" disabled>Unhide selected</button></div></div></section>
+<div class="panel" id="hidden-panel"><h3>Hidden tables</h3><p class="muted" id="hidden-count">Loading hidden tables…</p><p class="muted">Hiding only affects this dashboard. Nothing changes on the cabinet, and hidden tables can still be launched from other frontends. Unhide one below, or select several and use Unhide selected.</p><div id="hidden-list"></div><div class="hidden-actions"><button type="button" class="accountbtn" id="hidden-unhide-selected" disabled>Unhide selected</button></div></div>
+<div class="panel" id="stats-sections-panel"><h3>Stats sections</h3><p class="muted">Choose which sections the Stats page shows. Saved to your account on this server, across devices.</p><div id="stats-sections-list"></div><p id="stats-sections-message" class="muted" role="status"></p></div></section>
   <section id="view-admin" class="adminpanel" hidden>
     <h2>Admin</h2><p class="muted">Manage access to this cabinet. Viewers can browse tables and scores. Only admins can launch or exit tables, Sync or manage users.</p>
     <p id="admin-message" class="adminmessage" role="status"></p>
