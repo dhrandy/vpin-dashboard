@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 let CURRENT_USER = null;
 let CSRF = "";
 const nativeFetch = window.fetch.bind(window);
-function operationName(url){const p=new URL(url,location.href).pathname;if(p.startsWith('/api/details/'))return 'Table details';if(p.startsWith('/api/scorehistory/'))return 'Score history';if(p.startsWith('/api/admin/users'))return 'User management';return ({'/api/library':'Library refresh','/api/status':'Cabinet status','/api/favourites':'Personal favourites','/api/instructions':'Cabinet instructions','/api/preferences':'Display settings','/api/status/dismiss':'Session dismissal','/api/exit':'Exit table / frontend','/api/play':'Table launch','/api/cache-thumbs':'Image caching','/api/collection':'Background collection settings','/api/settings':'Branding','/api/auth/logout':'Sign out','/api/auth/status':'Sign in'})[p]||'Dashboard request';}
+function operationName(url){const p=new URL(url,location.href).pathname;if(p.startsWith('/api/details/'))return 'Table details';if(p.startsWith('/api/scorehistory/'))return 'Score history';if(p.startsWith('/api/admin/users'))return 'User management';return ({'/api/library':'Library refresh','/api/status':'Cabinet status','/api/favourites':'Personal favorites','/api/instructions':'Cabinet instructions','/api/preferences':'Display settings','/api/status/dismiss':'Session dismissal','/api/exit':'Exit table / frontend','/api/play':'Table launch','/api/cache-thumbs':'Image caching','/api/collection':'Background collection settings','/api/settings':'Branding','/api/auth/logout':'Sign out','/api/auth/status':'Sign in'})[p]||'Dashboard request';}
 function requestFailure(url,write=false){return operationName(url)+(write?' could not be confirmed. Check its current state before trying again.':' could not be loaded. Keeping saved data and retrying when connected.');}
 window.fetch = async (url, options={}) => {
   const headers = new Headers(options.headers || {});
@@ -23,6 +23,7 @@ let FAVOURITE_BUSY=false;
 let SHOW_TIMER=true;
 let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
+let BACK_TO_TOP=true;
 let BROWSE = "maker";
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US"));
@@ -32,17 +33,18 @@ const tableMeta = (t) => [...[t.maker, t.year].filter(Boolean), playCountLabel(t
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function heartButton(t){
-  const saved=FAVOURITES.has(t.gameId),label=(saved?'Remove ':'Add ')+t.name+(saved?' from':' to')+' your favourites';
+  const saved=FAVOURITES.has(t.gameId),label=(saved?'Remove ':'Add ')+t.name+(saved?' from':' to')+' your favorites';
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;renderStatus();renderLibrary();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('timer-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showTimer:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('playtime-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPlayTime:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('status-details-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{statusDetails:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('back-top-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{backToTop:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -52,7 +54,7 @@ function elapsedLabel(started,now=Date.now()){
 function statusAgeLabel(checkedAt,now=Date.now()) {if(!Number.isFinite(checkedAt)||checkedAt<=0)return 'Check time unavailable';const age=Math.max(0,Math.floor((now-checkedAt*1000)/1000));return age<60?'Checked '+age+'s ago':'Checked '+Math.floor(age/60)+'m ago';}
 function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started).replace(/^Elapsed /,'');const age=$('now-playing').querySelector('.status-age');if(age)age.textContent=statusAgeLabel(STATUS.checkedAt);const dismiss=$('now-playing').querySelector('.dismiss-session');if(dismiss)dismiss.title=statusAgeLabel(STATUS.checkedAt)+'. Studio may retain a session after a crash. Dismiss on this dashboard only; Play stays blocked.';}
 setInterval(updateElapsed,1000);
-async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favourites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
+async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favorites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
 async function toggleFavourite(gameId){
   if(FAVOURITE_BUSY)return;FAVOURITE_BUSY=true;document.querySelectorAll('[data-heart]').forEach(b=>b.disabled=true);
   try{const result=await apiPost('/api/favourites',{gameId,saved:!FAVOURITES.has(gameId)});FAVOURITES=new Set(result.gameIds);}
@@ -135,8 +137,8 @@ function headingFor(key) {
   if (key === "all") return "All tables";
   if (key === "with-scores") return "Tables with scores";
   if (key === "no-scores") return "No scores yet";
-  if (key === "cat:favourites") return "Favourites";
-  if (key === "cat:cabinet-favourites") return "Cabinet favourites";
+  if (key === "cat:favourites") return "Favorites";
+  if (key === "cat:cabinet-favourites") return "Cabinet favorites";
   if (key === "cat:top-rated") return "Top rated";
   if (key === "cat:recently-played") return "Recently played";
   if (key === "cat:recently-added") return "Recently added";
@@ -155,8 +157,8 @@ function renderSidebar(M) {
     </button>`;
   let html = `<p class="side-title">Library</p>`;
   html += btn("all", "All tables", M.countFor("all"));
-  html += btn("cat:favourites", "Favourites", M.countFor("cat:favourites"));
-  html += btn("cat:cabinet-favourites", "Cabinet favourites", M.countFor("cat:cabinet-favourites"));
+  html += btn("cat:favourites", "Favorites", M.countFor("cat:favourites"));
+  html += btn("cat:cabinet-favourites", "Cabinet favorites", M.countFor("cat:cabinet-favourites"));
   html += btn("cat:top-rated", "Top rated", M.countFor("cat:top-rated"));
   html += btn("cat:recently-played", "Recently played", M.countFor("cat:recently-played"));
   html += btn("cat:recently-added", "Recently added", M.countFor("cat:recently-added"));
@@ -192,7 +194,7 @@ function renderSidebar(M) {
   const sel = $("browse-by");
   if (sel) sel.addEventListener("change", () => { BROWSE = sel.value; renderLibrary(); });
 
-  const chips = [["all", "All"], ["cat:favourites", "Favourites"], ["cat:cabinet-favourites", "Cabinet favourites"], ["cat:top-rated", "Top rated"], ["cat:recently-played", "Recently played"], ["cat:recently-added", "Recently added"], ["cat:needs-attention", "Needs attention"], ["with-scores", "With scores"], ["no-scores", "No scores"]];
+  const chips = [["all", "All"], ["cat:favourites", "Favorites"], ["cat:cabinet-favourites", "Cabinet favorites"], ["cat:top-rated", "Top rated"], ["cat:recently-played", "Recently played"], ["cat:recently-added", "Recently added"], ["cat:needs-attention", "Needs attention"], ["with-scores", "With scores"], ["no-scores", "No scores"]];
   $("chiprow").innerHTML = chips.map(([k, l]) => `<button type="button" class="chip" data-filter="${k}" aria-pressed="${FILTER === k}">${l}</button>`).join("");
   $("chiprow").querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { selectFilter(b.dataset.filter); }));
 
@@ -505,7 +507,7 @@ async function performLoad(manual,refresh=false) {
     }
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
-  try{await loadFavourites();}catch(e){readIssues.push('Personal favourites unavailable');}
+  try{await loadFavourites();}catch(e){readIssues.push('Personal favorites unavailable');}
   renderLibrary(); renderStats();
   await loadStatus();
   updateModalCache();
@@ -580,6 +582,7 @@ $("sync-btn").addEventListener("click", () => load(true));
 $("tab-library").addEventListener("click", () => switchTab("library"));
 $("tab-stats").addEventListener("click", () => switchTab("stats"));
 function switchTab(which) {
+  requestAnimationFrame(updateBackToTop);
   if(which==="instructions" && $("tab-instructions").hidden)return;
   setMenu(false);
   $("view-settings").hidden=which!=="settings";$("tab-settings").setAttribute("aria-pressed",String(which==="settings"));
@@ -706,3 +709,8 @@ $('playfield-lightbox').addEventListener('close',()=>{const box=$('playfield-lig
 function resumeDashboardReads(){if(CURRENT_USER && !document.hidden && navigator.onLine!==false)load(false);}
 document.addEventListener('visibilitychange',resumeDashboardReads);
 window.addEventListener('online',resumeDashboardReads);
+
+function updateBackToTop(){const b=$('back-to-top');if(!b)return;b.hidden=!BACK_TO_TOP || $('view-library').hidden || window.scrollY<window.innerHeight*.8;if(b.hidden)return;b.style.transform='';for(let step=0;step<5;step++){const r=b.getBoundingClientRect();const hit=[...document.querySelectorAll('.artwrap>.play')].some(p=>{const q=p.getBoundingClientRect();return r.left<q.right+8 && r.right>q.left-8 && r.top<q.bottom+8 && r.bottom>q.top-8;});if(!hit)break;b.style.transform='translateY(-'+((step+1)*56)+'px)';}}
+window.addEventListener('scroll',updateBackToTop,{passive:true});
+window.addEventListener('resize',updateBackToTop);
+$('back-to-top').addEventListener('click',()=>{window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});

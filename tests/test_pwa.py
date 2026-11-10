@@ -12,6 +12,8 @@ class PWATests(unittest.TestCase):
         self.assertEqual(manifest['display'],'standalone')
         self.assertEqual(manifest['start_url'],'/')
         self.assertEqual(manifest['scope'],'/')
+        self.assertTrue(all('maskable' in icon['purpose'] for icon in manifest['icons']))
+        self.assertTrue(all('?v=2' in icon['src'] for icon in manifest['icons']))
         for n in (192,512):
             data=base64.b64decode((ROOT/f'pwa-icon-{n}.png.b64').read_bytes(),validate=True)
             self.assertTrue(data.startswith(b'\x89PNG\r\n\x1a\n'))
