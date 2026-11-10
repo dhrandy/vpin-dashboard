@@ -34,7 +34,7 @@ class Tests(unittest.TestCase):
   self.c.get_library=lambda:(_ for _ in ()).throw(RuntimeError('https://private.invalid API_KEY=secret'))
   self.c.step();self.assertEqual(self.c.library()['tables'],first['tables'])
   self.assertNotIn('private',json.dumps(self.c.summary()));self.assertIn('Backing off',self.c.summary()['pending'])
-  self.assertIsNone(self.c.status()['status']['gameId'])
+  self.assertEqual(self.c.status()['status']['gameId'],0)
  def test_incomplete_snapshot(self):
   self.c.step();self.advance(300);self.data={'ok':False};self.c.step()
   self.assertEqual(len(self.c.library()['tables']),1);self.assertEqual(self.c.summary()['historyCounts']['library'],1)
@@ -54,6 +54,17 @@ class Tests(unittest.TestCase):
   self.assertEqual(reopened.summary()['historyCounts']['library'],2)
  def test_stale_status(self):
   self.c.step();self.advance(126);self.assertTrue(self.c.status()['stale']);self.assertFalse(self.c.status()['health'])
+ def test_failure_keeps_last_good_status(self):
+  self.state['status']['gameId']=7;self.state['health']['game_playing']=True
+  self.c.step();self.advance()
+  self.c.get_status=lambda:(_ for _ in ()).throw(RuntimeError('timeout'))
+  self.c.step();st=self.c.status()
+  self.assertEqual(st['status']['gameId'],7);self.assertNotIn('stale',st)
+ def test_active_session_never_stale(self):
+  self.state['status']['gameId']=7;self.state['health']['game_playing']=True
+  self.c.step();self.advance(100000);st=self.c.status()
+  self.assertNotIn('stale',st);self.assertEqual(st['status']['gameId'],7)
+  self.assertGreater(self.t-st['checkedAt'],125)
  def test_no_duplicate_concurrent_pulls(self):
   entered=threading.Event();release=threading.Event()
   def wait_status():entered.set();release.wait(5);return self.state

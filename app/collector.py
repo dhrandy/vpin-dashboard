@@ -158,7 +158,7 @@ class Collector:
             self.next_status = now + delay
             with self.db() as db:
                 # Never persist upstream errors, credentials or private URLs.
-                self.put(db, 'latest_status', {'at':now,'data':{'ok':True,'health':{},'status':{'gameId':None,'started':None}}})
+                # Keep the last good status; it ages honestly through checkedAt.
                 self.put(db, 'last_error', 'Cabinet pull unavailable. Retaining the last good snapshot.')
                 self.put(db, 'pending', 'Backing off after an unavailable or incomplete pull')
                 self._prune(db, now)
@@ -181,9 +181,14 @@ class Collector:
         with self.db() as db:
             latest = self.read(db, 'latest_status')
             dismissed = self.read(db, 'dismissed_session')
-        if not latest or self.clock() - latest['at'] > 125:
-            return {'ok': True, 'health': {}, 'status': {'gameId': 0, 'started': None}, 'stale': True, 'checkedAt': latest['at'] if latest else None}
-        return {**latest['data'], 'checkedAt': latest['at'], 'dismissed': bool(dismissed and dismissed == self.session_key(latest['data']))}
+        if not latest:
+            return {'ok': True, 'health': {}, 'status': {'gameId': 0, 'started': None}, 'stale': True, 'checkedAt': None}
+        data = latest['data']
+        session = data.get('status', {}) if isinstance(data, dict) else {}
+        active = type(session.get('gameId')) is int and session['gameId'] > 0
+        if self.clock() - latest['at'] > 125 and not active:
+            return {'ok': True, 'health': {}, 'status': {'gameId': 0, 'started': None}, 'stale': True, 'checkedAt': latest['at']}
+        return {**data, 'checkedAt': latest['at'], 'dismissed': bool(dismissed and dismissed == self.session_key(latest['data']))}
 
     @staticmethod
     def session_key(data):

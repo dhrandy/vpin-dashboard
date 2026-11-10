@@ -1,0 +1,612 @@
+{
+ "about": "Curated community top tables to play. Selection and ordering compiled for this dashboard from public community sources. Table names, makers and years are facts; no community data is copied beyond those facts.",
+ "sources": [
+  "Pocket Pinball most-played VPX chart (pocketpinball.com/charts)",
+  "Pinside machine ratings (pinside.com)",
+  "VPUniverse top downloads (vpuniverse.com)",
+  "r/virtualpinball community threads"
+ ],
+ "compiled": "2026-11-10",
+ "tables": [
+  {
+   "rank": 1,
+   "name": "The Addams Family",
+   "maker": "Bally",
+   "year": 1992
+  },
+  {
+   "rank": 2,
+   "name": "Funhouse",
+   "maker": "Williams",
+   "year": 1990
+  },
+  {
+   "rank": 3,
+   "name": "Star Trek - The Next Generation",
+   "maker": "Williams",
+   "year": 1993
+  },
+  {
+   "rank": 4,
+   "name": "Tales of the Arabian Nights",
+   "maker": "Williams",
+   "year": 1996
+  },
+  {
+   "rank": 5,
+   "name": "Attack from Mars",
+   "maker": "Bally",
+   "year": 1995
+  },
+  {
+   "rank": 6,
+   "name": "Monster Bash",
+   "maker": "Williams",
+   "year": 1998
+  },
+  {
+   "rank": 7,
+   "name": "Indiana Jones - The Last Movie",
+   "maker": "Original",
+   "year": 2023
+  },
+  {
+   "rank": 8,
+   "name": "Black Knight",
+   "maker": "Williams",
+   "year": 1980
+  },
+  {
+   "rank": 9,
+   "name": "Bram Stoker's Dracula",
+   "maker": "Williams",
+   "year": 1993
+  },
+  {
+   "rank": 10,
+   "name": "Elvira's House of Horrors Remix",
+   "maker": "Original",
+   "year": 2021
+  },
+  {
+   "rank": 11,
+   "name": "The Lord of the Rings",
+   "maker": "Stern",
+   "year": 2003
+  },
+  {
+   "rank": 12,
+   "name": "Indiana Jones - The Pinball Adventure",
+   "maker": "Williams",
+   "year": 1993
+  },
+  {
+   "rank": 13,
+   "name": "Medieval Madness",
+   "maker": "Williams",
+   "year": 1997
+  },
+  {
+   "rank": 14,
+   "name": "Guns N' Roses Data",
+   "maker": "East",
+   "year": 1994
+  },
+  {
+   "rank": 15,
+   "name": "Terminator 2 - Judgment Day",
+   "maker": "Williams",
+   "year": 1991
+  },
+  {
+   "rank": 16,
+   "name": "Big Shot",
+   "maker": "Gottlieb",
+   "year": 1974
+  },
+  {
+   "rank": 17,
+   "name": "Halloween Michael Myers Pinball Adventures",
+   "maker": "Original",
+   "year": 2018
+  },
+  {
+   "rank": 18,
+   "name": "Eight Ball Deluxe",
+   "maker": "Bally",
+   "year": 1981
+  },
+  {
+   "rank": 19,
+   "name": "JP's Space Cadet",
+   "maker": "Original",
+   "year": 2021
+  },
+  {
+   "rank": 20,
+   "name": "The Avengers (Pro)",
+   "maker": "Stern",
+   "year": 2012
+  },
+  {
+   "rank": 21,
+   "name": "AC/DC (LUCI Premium)",
+   "maker": "Stern",
+   "year": 2013
+  },
+  {
+   "rank": 22,
+   "name": "The Walking Dead (Limited Edition)",
+   "maker": "Stern",
+   "year": 2014
+  },
+  {
+   "rank": 23,
+   "name": "Creature from the Black Lagoon",
+   "maker": "Bally",
+   "year": 1992
+  },
+  {
+   "rank": 24,
+   "name": "Transformers (Pro)",
+   "maker": "Stern",
+   "year": 2011
+  },
+  {
+   "rank": 25,
+   "name": "Willy Wonka & the Chocolate Factory",
+   "maker": "Original",
+   "year": 2020
+  },
+  {
+   "rank": 26,
+   "name": "The Great Gatsby",
+   "maker": "Original",
+   "year": 2026
+  },
+  {
+   "rank": 27,
+   "name": "The Simpsons Pinball Party",
+   "maker": "Stern",
+   "year": 2003
+  },
+  {
+   "rank": 28,
+   "name": "Metallica (Premium Monsters)",
+   "maker": "Stern",
+   "year": 2013
+  },
+  {
+   "rank": 29,
+   "name": "Tales from the Crypt Data",
+   "maker": "East",
+   "year": 1993
+  },
+  {
+   "rank": 30,
+   "name": "Diablo 2",
+   "maker": "Original",
+   "year": 2026
+  },
+  {
+   "rank": 31,
+   "name": "Alien Star",
+   "maker": "Gottlieb",
+   "year": 1984
+  },
+  {
+   "rank": 32,
+   "name": "JP's Foo Fighters",
+   "maker": "Original",
+   "year": 2025
+  },
+  {
+   "rank": 33,
+   "name": "Mary Shelley's Frankenstein",
+   "maker": "Sega",
+   "year": 1995
+  },
+  {
+   "rank": 34,
+   "name": "Cactus Canyon",
+   "maker": "Bally",
+   "year": 1998
+  },
+  {
+   "rank": 35,
+   "name": "Batman '66",
+   "maker": "Original",
+   "year": 2018
+  },
+  {
+   "rank": 36,
+   "name": "The Godfather",
+   "maker": "Original",
+   "year": 2024
+  },
+  {
+   "rank": 37,
+   "name": "WHO dunnit",
+   "maker": "Bally",
+   "year": 1995
+  },
+  {
+   "rank": 38,
+   "name": "Cirqus Voltaire",
+   "maker": "Bally",
+   "year": 1997
+  },
+  {
+   "rank": 39,
+   "name": "Theatre of Magic",
+   "maker": "Bally",
+   "year": 1995
+  },
+  {
+   "rank": 40,
+   "name": "Bleach",
+   "maker": "Original",
+   "year": 2023
+  },
+  {
+   "rank": 41,
+   "name": "Men in Black Trilogy",
+   "maker": "Original",
+   "year": 2024
+  },
+  {
+   "rank": 42,
+   "name": "Fish Tales",
+   "maker": "Williams",
+   "year": 1992
+  },
+  {
+   "rank": 43,
+   "name": "Alien Poker",
+   "maker": "Williams",
+   "year": 1980
+  },
+  {
+   "rank": 44,
+   "name": "NASCAR",
+   "maker": "Stern",
+   "year": 2005
+  },
+  {
+   "rank": 45,
+   "name": "Les Insus",
+   "maker": "Original",
+   "year": 2026
+  },
+  {
+   "rank": 46,
+   "name": "John Wick Legend",
+   "maker": "Original",
+   "year": 2026
+  },
+  {
+   "rank": 47,
+   "name": "Godzilla",
+   "maker": "Sega",
+   "year": 1998
+  },
+  {
+   "rank": 48,
+   "name": "Harlem Globetrotters on Tour",
+   "maker": "Bally",
+   "year": 1979
+  },
+  {
+   "rank": 49,
+   "name": "The Sopranos",
+   "maker": "Stern",
+   "year": 2005
+  },
+  {
+   "rank": 50,
+   "name": "World Cup Soccer",
+   "maker": "Bally",
+   "year": 1994
+  },
+  {
+   "rank": 51,
+   "name": "JP's Ghostbusters Slimer",
+   "maker": "Original",
+   "year": 2017
+  },
+  {
+   "rank": 52,
+   "name": "Elvira and the Party Monsters",
+   "maker": "Bally",
+   "year": 1989
+  },
+  {
+   "rank": 53,
+   "name": "Phil Collins",
+   "maker": "Original",
+   "year": 2023
+  },
+  {
+   "rank": 54,
+   "name": "F-14 Tomcat",
+   "maker": "Williams",
+   "year": 1987
+  },
+  {
+   "rank": 55,
+   "name": "Cosmic Taito do",
+   "maker": "Brasil",
+   "year": 1980
+  },
+  {
+   "rank": 56,
+   "name": "Metallica Remastered",
+   "maker": "Original",
+   "year": 2026
+  },
+  {
+   "rank": 57,
+   "name": "NBA Fastbreak",
+   "maker": "Bally",
+   "year": 1997
+  },
+  {
+   "rank": 58,
+   "name": "Haunted House",
+   "maker": "Gottlieb",
+   "year": 1982
+  },
+  {
+   "rank": 59,
+   "name": "Pinball Magic",
+   "maker": "Capcom",
+   "year": 1995
+  },
+  {
+   "rank": 60,
+   "name": "Argosy",
+   "maker": "Williams",
+   "year": 1977
+  },
+  {
+   "rank": 61,
+   "name": "Judge Dredd",
+   "maker": "Bally",
+   "year": 1993
+  },
+  {
+   "rank": 62,
+   "name": "City Hunter",
+   "maker": "Original",
+   "year": 2025
+  },
+  {
+   "rank": 63,
+   "name": "The Flintstones",
+   "maker": "Williams",
+   "year": 1994
+  },
+  {
+   "rank": 64,
+   "name": "Scared Stiff",
+   "maker": "Bally",
+   "year": 1996
+  },
+  {
+   "rank": 65,
+   "name": "Aerosmith",
+   "maker": "Original",
+   "year": 2019
+  },
+  {
+   "rank": 66,
+   "name": "Firepower",
+   "maker": "Williams",
+   "year": 1980
+  },
+  {
+   "rank": 67,
+   "name": "Space Invaders",
+   "maker": "Bally",
+   "year": 1980
+  },
+  {
+   "rank": 68,
+   "name": "Rocky",
+   "maker": "Gottlieb",
+   "year": 1982
+  },
+  {
+   "rank": 69,
+   "name": "Lost World",
+   "maker": "Bally",
+   "year": 1978
+  },
+  {
+   "rank": 70,
+   "name": "Demolition Man",
+   "maker": "Williams",
+   "year": 1994
+  },
+  {
+   "rank": 71,
+   "name": "Dirty Harry",
+   "maker": "Williams",
+   "year": 1995
+  },
+  {
+   "rank": 72,
+   "name": "Pirates of the Caribbean",
+   "maker": "Stern",
+   "year": 2006
+  },
+  {
+   "rank": 73,
+   "name": "El Dorado",
+   "maker": "Gottlieb",
+   "year": 1975
+  },
+  {
+   "rank": 74,
+   "name": "Centaur",
+   "maker": "Bally",
+   "year": 1981
+  },
+  {
+   "rank": 75,
+   "name": "JP's Deadpool",
+   "maker": "Original",
+   "year": 2021
+  },
+  {
+   "rank": 76,
+   "name": "Paragon",
+   "maker": "Bally",
+   "year": 1979
+  },
+  {
+   "rank": 77,
+   "name": "Sorcerer",
+   "maker": "Williams",
+   "year": 1985
+  },
+  {
+   "rank": 78,
+   "name": "Jurassic Park Data",
+   "maker": "East",
+   "year": 1993
+  },
+  {
+   "rank": 79,
+   "name": "250 cc",
+   "maker": "Inder",
+   "year": 1992
+  },
+  {
+   "rank": 80,
+   "name": "Amigo",
+   "maker": "Bally",
+   "year": 1974
+  },
+  {
+   "rank": 81,
+   "name": "Batman",
+   "maker": "Stern",
+   "year": 2008
+  },
+  {
+   "rank": 82,
+   "name": "Spider-Man (Vault Edition)",
+   "maker": "Stern",
+   "year": 2016
+  },
+  {
+   "rank": 83,
+   "name": "James Bond 007",
+   "maker": "Gottlieb",
+   "year": 1980
+  },
+  {
+   "rank": 84,
+   "name": "Back to the Future Data",
+   "maker": "East",
+   "year": 1990
+  },
+  {
+   "rank": 85,
+   "name": "Quicksilver",
+   "maker": "Stern",
+   "year": 1980
+  },
+  {
+   "rank": 86,
+   "name": "Star Wars Trilogy Special Edition",
+   "maker": "Sega",
+   "year": 1997
+  },
+  {
+   "rank": 87,
+   "name": "RollerCoaster Tycoon",
+   "maker": "Stern",
+   "year": 2002
+  },
+  {
+   "rank": 88,
+   "name": "Last Action Hero Data",
+   "maker": "East",
+   "year": 1993
+  },
+  {
+   "rank": 89,
+   "name": "The X Files",
+   "maker": "Sega",
+   "year": 1997
+  },
+  {
+   "rank": 90,
+   "name": "Black Knight 2000",
+   "maker": "Williams",
+   "year": 1989
+  },
+  {
+   "rank": 91,
+   "name": "Die Hard Trilogy",
+   "maker": "Original",
+   "year": 2023
+  },
+  {
+   "rank": 92,
+   "name": "Jaws",
+   "maker": "Original",
+   "year": 2025
+  },
+  {
+   "rank": 93,
+   "name": "Star Wars Data",
+   "maker": "East",
+   "year": 1992
+  },
+  {
+   "rank": 94,
+   "name": "Monopoly",
+   "maker": "Stern",
+   "year": 2001
+  },
+  {
+   "rank": 95,
+   "name": "Class of 1812",
+   "maker": "Gottlieb",
+   "year": 1991
+  },
+  {
+   "rank": 96,
+   "name": "Family Guy",
+   "maker": "Stern",
+   "year": 2007
+  },
+  {
+   "rank": 97,
+   "name": "Super Mario Bros.",
+   "maker": "Gottlieb",
+   "year": 1992
+  },
+  {
+   "rank": 98,
+   "name": "Disney TRON Legacy (Limited Edition)",
+   "maker": "Stern",
+   "year": 2011
+  },
+  {
+   "rank": 99,
+   "name": "Twilight Zone",
+   "maker": "Bally",
+   "year": 1993
+  },
+  {
+   "rank": 100,
+   "name": "White Water",
+   "maker": "Williams",
+   "year": 1993
+  }
+ ]
+}

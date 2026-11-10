@@ -40,6 +40,7 @@ from http.cookies import SimpleCookie
 from auth import AuthStore, AuthError
 from collector import Collector
 from table_cache import TableCache
+import toplist
 import csv
 import io
 import json
@@ -459,9 +460,18 @@ def library_payload(strict=False):
         if strict:raise
     for table in tables:
         table["timePlayedSecs"]=totals.get(table["gameId"])
+    top_tables, top_total = [], 0
+    try:
+        curated = toplist.load_curated()
+        top_total = len(curated)
+        top_tables = toplist.match(curated, tables)
+    except Exception:
+        top_tables, top_total = [], 0
     return {
         "ok": True,
         "tables": tables,
+        "topTables": top_tables,
+        "topTablesTotal": top_total,
         "scores": scores,
         "playlists": playlists,
         "thumbsEnabled": True,
@@ -469,9 +479,9 @@ def library_payload(strict=False):
 
 
 def current_status():
-    health=bridge('GET','/health',timeout=5);status={}
+    health=bridge('GET','/health',timeout=15);status={}
     if health.get('cabinet_reachable') is True:
-        status=bridge('GET','/api/status',timeout=5)
+        status=bridge('GET','/api/status',timeout=15)
     game_id=status.get('gameId')
     try:
         game_id=int(game_id) if game_id is not None else None

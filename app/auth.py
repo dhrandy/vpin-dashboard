@@ -258,7 +258,7 @@ class AuthStore:
                 db.execute('DELETE FROM hidden WHERE user_id=? AND game_id=?',(user_id,game_id))
         return self.hidden(user_id)
 
-    STATS_SECTIONS = ('most', 'least', 'recent', 'tops', 'players', 'makers', 'decades')
+    STATS_SECTIONS = ('most', 'least', 'recent', 'tops', 'players', 'makers', 'decades', 'toplist')
 
     def stats_sections(self, user_id):
         with self.db() as db:

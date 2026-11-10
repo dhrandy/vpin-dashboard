@@ -15,14 +15,14 @@ window.fetch = async (url, options={}) => {
   const readJSON=response.json.bind(response);response.json=async()=>{try{return await readJSON();}catch{throw new Error(operationName(url)+' returned an unreadable response.'+(write?' Check its current state before trying again.':' Retrying when connected.'));}};
   return response;
 };
-let DATA = { tables: [], scores: [], playlists: [], thumbsEnabled: false };
+let DATA = { tables: [], scores: [], playlists: [], thumbsEnabled: false, topTables: [], topTablesTotal: 0 };
 let STATUS = { state: "unknown", gamePlaying: false, playingText: null };
 let FILTER = "all";
 let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let HIDDEN=new Set();
 let STATS_HIDDEN=new Set();
-const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"]];
+const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"],["toplist","Top tables to play"]];
 let HIDDEN_BUSY=false;
 let SHOW_HIDDEN=false;
 let SHOW_TIMER=true;
@@ -35,6 +35,7 @@ const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleSt
 const playCountLabel = (t) => Number.isInteger(t.playCount) && t.playCount >= 0 ? `${fmt(t.playCount)} play${t.playCount === 1 ? "" : "s"}` : "Plays unknown";
 const totalTimeLabel = t => Number.isInteger(t.timePlayedSecs) && t.timePlayedSecs>=0 ? (t.timePlayedSecs>0 && t.timePlayedSecs<60?"<1":fmt(Math.floor(t.timePlayedSecs/60)))+" min total" : "Time unavailable";
 const tableMeta = (t) => [...[t.maker, t.year].filter(Boolean), playCountLabel(t)].join(" · ");
+const addedLine = (t) => { const d = t.addedAt && Date.parse(t.addedAt); return Number.isFinite(d) ? `<p class="muted detail-added">Added ${esc(new Date(d).toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"}))}</p>` : ""; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function heartButton(t){
@@ -260,7 +261,7 @@ function renderSidebar(M) {
 let EXIT_PENDING=false;
 function renderStatus() {
   const dot = $("status-dot"), label = $("status-label");
-  const stale=STATUS.checkedAt && Date.now()/1000-STATUS.checkedAt>125;
+  const stale=!STATUS.gamePlaying && STATUS.checkedAt && Date.now()/1000-STATUS.checkedAt>125;
   const state=stale?'stale':STATUS.state==='offline'?'offline':STATUS.state!=='online'?'unknown':STATUS.gamePlaying?'busy':'idle';
   const labels={idle:'Cabinet idle',busy:'Cabinet busy - Studio reports an active table',offline:'Cabinet offline',unknown:'Cabinet status unknown',stale:'Cabinet status stale - refresh needed'};
   label.textContent=labels[state];
@@ -276,7 +277,7 @@ function renderStatus() {
     text.title=statusAgeLabel(STATUS.checkedAt)+'. Reported by Studio, not a process check; it may remain active after a crash.';
     if(t && !STATUS.dismissed){text.type='button';text.setAttribute('aria-label','Go to '+t.name+' in Library');text.addEventListener('click',()=>{switchTab('library');$('search').value='';selectFilter('all');const card=$('grid').querySelector('[data-open="'+t.gameId+'"]');if(card){card.scrollIntoView({block:'center',behavior:'smooth'});card.focus({preventScroll:true});}});}
     if(SHOW_TIMER && !STATUS.dismissed){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started).replace(/^Elapsed /,'');text.append(timer);}
-    const main=document.createElement('div');main.className='reported-session';main.append(text);np.append(main);
+    const main=document.createElement('div');main.className='reported-session';const npl=document.createElement('span');npl.className='np-label';npl.textContent=STATUS.dismissed?'Reported':'Now playing';main.append(npl);text.classList.add('np-name');main.append(text);np.append(main);
     if(CURRENT_USER?.role==='admin' && !STATUS.dismissed && STATUS.started){const dismiss=document.createElement('button');dismiss.type='button';dismiss.className='dismiss-session';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss this reported session');dismiss.title=statusAgeLabel(STATUS.checkedAt)+'. Studio may retain a session after a crash. Dismiss on this dashboard only; Play stays blocked.';dismiss.addEventListener('click',async()=>{if(!confirm(statusAgeLabel(STATUS.checkedAt)+'. Studio may still report a crashed table. Hide this session on this dashboard only? This does not stop a table, reset Studio, or enable Play.'))return;dismiss.disabled=true;try{await apiPost('/api/status/dismiss',{gameId:STATUS.gameId,started:STATUS.started});await loadStatus();}catch(error){showBanner(error.message);dismiss.disabled=false;}});if(STATUS_DETAILS){dismiss.textContent='Dismiss this session';dismiss.classList.add('dismiss-detailed');}main.append(dismiss);}
     if(STATUS_DETAILS){const info=document.createElement('div');info.className='reported-info';const age=document.createElement('span');age.className='status-age';age.textContent=statusAgeLabel(STATUS.checkedAt);info.append(age);const caveat=document.createElement('span');caveat.textContent=STATUS.dismissed?'Hidden on this dashboard only. Studio still reports busy; Play stays blocked.':'Studio status, not a process check. It may remain active after a crash.';info.append(caveat);const detailedDismiss=main.querySelector('.dismiss-detailed');if(detailedDismiss)info.append(detailedDismiss);np.append(info);}
 
@@ -309,6 +310,8 @@ function renderLibrary() {
   if (sort === "name") rows.sort((a, b) => a.name.localeCompare(b.name));
   if (sort === "score") rows.sort((a, b) => (b.bestScore ?? -1) - (a.bestScore ?? -1));
   if (sort === "played") rows.sort((a, b) => dateSortValue(b.lastPlayedAt)-dateSortValue(a.lastPlayedAt)||a.name.localeCompare(b.name));
+  if (sort === "most-plays") rows.sort((a, b) => (b.playCount ?? -1) - (a.playCount ?? -1) || a.name.localeCompare(b.name));
+  if (sort === "least-plays") rows.sort((a, b) => (a.playCount ?? Number.MAX_SAFE_INTEGER) - (b.playCount ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
   if (sort === "added") rows.sort((a, b) => dateSortValue(b.addedAt)-dateSortValue(a.addedAt)||a.name.localeCompare(b.name));
   if (sort === "maker") rows.sort((a, b) => (a.maker || "~").localeCompare(b.maker || "~") || a.name.localeCompare(b.name));
   if (sort === "year-desc") rows.sort((a, b) => (b.year ?? -1) - (a.year ?? -1));
@@ -389,6 +392,18 @@ function renderStats() {
     return weeks + (weeks === 1 ? " wk ago" : " wks ago");
   };
   $("recent-tables").innerHTML = recent.length ? recent.map((t) => `<div class="feed-item"><span class="feed-dot" aria-hidden="true"></span><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button><time class="feed-when" datetime="${esc(t.lastPlayedAt)}">${esc(playedAgo(t.lastPlayedAt) + " \u00b7 " + playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
+  const topEntries = (DATA.topTables || []).filter((e) => !HIDDEN.has(e.gameId));
+  const topTotal = DATA.topTablesTotal || 100;
+  let topUnplayed = 0;
+  $("toplist").innerHTML = topEntries.length ? topEntries.map((e) => {
+    const t = statTables.find((x) => x.gameId === e.gameId);
+    const plays = t && Number.isInteger(t.playCount) ? t.playCount : 0;
+    if (!plays) topUnplayed++;
+    const right = plays > 0 ? `<span class="rank-value">${fmt(plays)}<small>plays</small></span>` : '<span class="chip-new">Not played yet</span>';
+    const meta = [e.maker, e.year].filter(Boolean).join(" \u00b7 ");
+    return `<div class="rank-row"><span class="toplist-badge">#${e.rank}</span><div><button class="stats-table tname2" data-open="${e.gameId}">${esc(e.name)}${e.edition ? " " + esc(e.edition) : ""}</button><div class="toplist-meta">${esc(meta)}</div></div>${right}</div>`;
+  }).join("") : '<p class="muted">None of the curated tables are in your library yet.</p>';
+  $("toplist-count").textContent = topEntries.length ? `${topEntries.length} of ${topTotal} curated tables are in your library.${topUnplayed ? ` ${topUnplayed} of them have no recorded plays.` : ""}` : "";
   $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
@@ -427,7 +442,7 @@ async function openDetail(gameId) {
       ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
     </div>
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
-    <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>
+    <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>${addedLine(t)}
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
     ${(t.attentionReasons||[]).length?`<section class="attention-note"><h3>Cabinet checks</h3><p>${esc(t.attentionReasons.join('; '))}</p><p class="muted">The cabinet export reports neither a directB2S backglass file nor a PUP pack. Some tables need neither. This is not a confirmed launch error.</p></section>`:''}
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
@@ -473,7 +488,7 @@ function renderModalData(kind,gameId,res){
     const seen = new Set();
     const snapshots = res.scores.filter((h) => h && h.createdAt && Number.isFinite(Date.parse(h.createdAt)) && Array.isArray(h.scores))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).filter((h) => {
-        const signature = h.createdAt + JSON.stringify(h.scores.map((s) => [s.position, s.playerInitials, s.score, s.label, s.suffix]));
+        const signature = JSON.stringify(h.scores.map((s) => [s.position, s.playerInitials, s.score, s.label, s.suffix]));
         if (seen.has(signature)) return false;
         seen.add(signature); return true;
       }).slice(0, 5);
@@ -538,7 +553,8 @@ async function play(gameId) {
   loadStatus();
 }
 
-function showBanner(msg) { const b = $("banner"); b.textContent = msg; b.style.display = "block"; }
+let BANNER_TIMER = 0;
+function showBanner(msg) { const b = $("banner"); b.textContent = msg; b.style.display = "block"; clearTimeout(BANNER_TIMER); BANNER_TIMER = setTimeout(() => { b.style.display = "none"; }, 5000); }
 
 async function loadStatus() {
   try {
