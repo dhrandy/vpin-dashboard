@@ -524,23 +524,38 @@ async function performLoad(manual,refresh=false) {
   return !error && !readIssues.length;
 }
 
+const SYNC_STATUS={images:null,tables:null};
+function renderSyncAttention(){
+  const values=Object.values(SYNC_STATUS).filter(Boolean),dot=$('sync-attention-dot');
+  const state=values.some(s=>s.failed||s.incomplete||s.error)?'attention':values.some(s=>s.running)?'busy':values.some(s=>s.total)?'complete':'none';
+  dot.dataset.state=state;
+  const description={attention:'Sync needs attention',busy:'Sync is running',complete:'Latest cache jobs complete',none:'No cache job reported yet'}[state];
+  $('sync-status-toggle').setAttribute('aria-label',description+'. Show sync status');$('sync-status-toggle').title=description;
+  $('sync-status-empty').hidden=values.some(s=>s.total||s.error);
+}
+function setSyncStatus(open){const mobile=matchMedia('(max-width:1099px)').matches;$('sync-status-panel').hidden=!(open||mobile);$('sync-status-toggle').setAttribute('aria-expanded',String(open||mobile));}
+matchMedia('(max-width:1099px)').addEventListener('change',()=>setSyncStatus(false));
+setSyncStatus(false);
+$('sync-status-toggle').addEventListener('click',()=>setSyncStatus($('sync-status-panel').hidden));
+document.addEventListener('click',event=>{if(!event.target.closest('.sync-tools'))setSyncStatus(false);});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')setSyncStatus(false);});
 let modalCachePoll=null;
 async function updateModalCache(){
   if(document.hidden||navigator.onLine===false)return;
   try{
     const response=await fetch('/api/modal-cache');if(!response.ok)return;
-    const state=await response.json(),node=$('modal-cache-progress');node.style.display=state.total?'block':'none';
+    const state=await response.json(),node=$('modal-cache-progress');SYNC_STATUS.tables=state;renderSyncAttention();node.style.display=state.total?'block':'none';
     node.textContent=state.running?`${state.paused?'Table data cache paused while cabinet is busy or offline':'Saving table details and history'} ${state.done}/${state.total}`:`Table data saved: ${state.done-state.failed}/${state.total}${state.failed?' · '+state.failed+' unavailable; retry on Sync':''}${state.incomplete?' · incomplete; tap Sync to continue':''}`;
     if(state.running&&!modalCachePoll)modalCachePoll=setInterval(updateModalCache,5000);
     if(!state.running&&modalCachePoll){clearInterval(modalCachePoll);modalCachePoll=null;}
-  }catch{const node=$('modal-cache-progress');node.style.display='block';node.textContent='Table data cache progress unavailable.';}
+  }catch{SYNC_STATUS.tables={error:true};renderSyncAttention();const node=$('modal-cache-progress');node.style.display='block';node.textContent='Table data cache progress unavailable.';}
 }
-async function startModalCache(){try{await apiPost('/api/modal-cache',{gameIds:DATA.tables.map(t=>t.gameId)});await updateModalCache();}catch(error){const node=$('modal-cache-progress');node.style.display='block';node.textContent=error.message;}}
+async function startModalCache(){try{await apiPost('/api/modal-cache',{gameIds:DATA.tables.map(t=>t.gameId)});await updateModalCache();}catch(error){SYNC_STATUS.tables={error:true};renderSyncAttention();const node=$('modal-cache-progress');node.style.display='block';node.textContent=error.message;}}
 let cachePoll = null;
 async function updateImageCache() {
   if(document.hidden || navigator.onLine===false)return;
   try {
-    const state = await fetch("/api/cache-thumbs").then((r) => r.json());
+    const response=await fetch("/api/cache-thumbs");if(!response.ok)throw new Error();const state=await response.json();SYNC_STATUS.images=state;renderSyncAttention();
     const failures=Array.isArray(state.failedTables)?state.failedTables:[];
     $('cache-failures').textContent=failures.length?failures.map(f=>(DATA.tables.find(t=>t.gameId===f.gameId)?.name || 'Table '+f.gameId)+': '+f.reason).join(' • '):'No unavailable previews reported by the latest Sync.';
     const label = $("cache-progress");
@@ -548,14 +563,14 @@ async function updateImageCache() {
     label.textContent = state.running ? `${state.paused ? "Caching paused while cabinet is busy or offline" : "Caching images"} ${state.done}/${state.total}` : `Images cached: ${state.done - state.failed}/${state.total}${state.failed ? ` · ${state.failed} unavailable (retry on Sync)` : ""}`;
     if (state.running && !cachePoll) cachePoll = setInterval(updateImageCache, 2000);
     if (!state.running && cachePoll) { clearInterval(cachePoll); cachePoll = null; }
-  } catch { $("cache-progress").textContent = "Image cache progress unavailable"; }
+  } catch {SYNC_STATUS.images={error:true};renderSyncAttention();$("cache-progress").style.display="block";$("cache-progress").textContent = "Image cache progress unavailable"; }
 }
 async function startImageCache(full=false) {
   try {
     const r = await fetch("/api/cache-thumbs", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full,tables:DATA.tables.map((t) => ({gameId:t.gameId,mediaRevision:t.mediaRevision}))})});
     if (!r.ok) {const result=await r.json();throw new Error(result.error||'Image caching could not start.');}
     updateImageCache();return true;
-  } catch(e) { $("cache-progress").style.display="block"; $("cache-progress").textContent=e.message||"Image caching could not start. Tap Sync to retry.";return false; }
+  } catch(e) {SYNC_STATUS.images={error:true};renderSyncAttention();$("cache-progress").style.display="block"; $("cache-progress").textContent=e.message||"Image caching could not start. Tap Sync to retry.";return false; }
 }
 $("sync-btn").addEventListener("click", () => load(true));
 $("tab-library").addEventListener("click", () => switchTab("library"));
@@ -677,7 +692,7 @@ $('branding-form').addEventListener('submit',async e=>{
 (async()=>{
   const state=await fetch('/api/auth/status').then(r=>r.json());if(!state.user){location.replace('/login');return;}
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
-  $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
+  $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('sync-tools').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
   await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
 })().catch(error=>showBanner(error.message||'Dashboard could not be loaded. Refresh to try again.'));
 
