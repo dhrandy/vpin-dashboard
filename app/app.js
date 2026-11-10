@@ -16,10 +16,12 @@ let FILTER = "all";
 let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let SHOW_TIMER=true;
+let SHOW_PLAY_TIME=true;
 let BROWSE = "maker";
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US"));
 const playCountLabel = (t) => Number.isInteger(t.playCount) && t.playCount >= 0 ? `${fmt(t.playCount)} play${t.playCount === 1 ? "" : "s"}` : "Plays unknown";
+const totalTimeLabel = t => Number.isInteger(t.timePlayedSecs) && t.timePlayedSecs>=0 ? (t.timePlayedSecs>0 && t.timePlayedSecs<60?"<1":fmt(Math.floor(t.timePlayedSecs/60)))+" min total" : "Time unavailable";
 const tableMeta = (t) => [...[t.maker, t.year].filter(Boolean), playCountLabel(t)].join(" · ");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -28,11 +30,12 @@ function heartButton(t){
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;renderStatus();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('timer-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showTimer:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('playtime-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPlayTime:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -255,13 +258,14 @@ function renderLibrary() {
     <article class="card">
       <button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
         ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}?v=2&r=${encodeURIComponent(t.mediaRevision || "")}" alt="" loading="lazy">` : ""}
-        ${t.needsAttention ? `<span class="flag" title="This table is missing something, like a backglass">Needs attention</span>` : ""}
+        ${(t.attentionReasons||[]).length ? `<span class="flag" title="${esc(t.attentionReasons.join('; '))}. Open table details for context.">${esc(t.attentionReasons[0])}${t.attentionReasons.length>1?' +'+(t.attentionReasons.length-1):''}</span>` : ""}
 
       </button>
       ${heartButton(t)}
       <div class="cardbody">
         <p class="tname">${esc(t.name)}</p>
         <p class="meta" title="${esc(tableMeta(t))}" aria-label="${esc(tableMeta(t))}">${t.maker ? `<span class="meta-maker">${esc(t.maker)}</span><span class="meta-fixed">·</span>` : ""}${t.year ? `<span class="meta-fixed">${esc(t.year)} ·</span>` : ""}<span class="meta-fixed">${esc(playCountLabel(t))}</span></p>
+        ${SHOW_PLAY_TIME?`<p class="playtime" title="Cumulative play time reported by Studio's frontend analytics, not the duration of the last session">${esc(totalTimeLabel(t))}</p>`:''}
         <div class="cardfeatures">${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}${canLaunch(t) ? `<button class="play" data-play="${t.gameId}" ${canPlay ? "" : "disabled"} aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : ""}</div>
       </div>
       <div class="cardfoot">
@@ -331,10 +335,11 @@ async function openDetail(gameId) {
   const entry = bestByTable().get(gameId);
   const d = $("detail");
   d.innerHTML = `
-    ${DATA.thumbsEnabled ? `<img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}">` : ""}
+    ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
     <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
+    ${(t.attentionReasons||[]).length?`<section class="attention-note"><h3>Cabinet checks</h3><p>${esc(t.attentionReasons.join('; '))}</p><p class="muted">The cabinet export reports neither a directB2S backglass file nor a PUP pack. Some tables need neither. This is not a confirmed launch error.</p></section>`:''}
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
     ${entry ? entry.scores.map((s) => `<div class="row"><span>#${s.rank} ${esc(s.initials || "—")}</span><strong style="color:var(--accent)">${fmt(s.score)}</strong></div>`).join("") : '<p class="muted">No scores recorded on this table.</p>'}
     <section class="score-history"><h3>Recent score changes</h3><p class="panel-note">Latest saved highscore snapshots, not results from every play. Expand a date to see its scores.</p><div id="detail-history" class="muted">Loading score history…</div></section>
@@ -344,7 +349,8 @@ async function openDetail(gameId) {
     <button id="detail-close" style="width:100%;margin-top:6px;padding:10px;background:var(--surface2);color:var(--text);border:0;border-radius:6px;cursor:pointer">Close</button>`;
   d.dataset.gameId = String(gameId);
   d.showModal();bindHearts(d);
-  d.querySelector(".dimg")?.addEventListener("error",e=>e.target.remove(),{once:true});
+  d.querySelector(".dimg")?.addEventListener("error",e=>e.target.closest("button").remove(),{once:true});
+  d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>{const box=$('playfield-lightbox');box.innerHTML=`<button class="lightbox-close" type="button">Close enlarged playfield</button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>`;box.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>box.close()));box.showModal();});
   loadScoreHistory(gameId);
   $("detail-close").addEventListener("click", () => d.close());
   $("detail-play")?.addEventListener("click", () => { d.close(); play(gameId); });
@@ -414,7 +420,7 @@ async function loadStatus() {
   const activePlay=$("detail-play");if(activePlay){const t=DATA.tables.find(t=>String(t.gameId)===$("detail").dataset.gameId);if(!t||!canLaunch(t)){activePlay.remove();$("detail").querySelector(".launch-note")?.remove();}}
 }
 
-async function load(manual) {
+async function load(manual,refresh=false) {
   if (manual && CURRENT_USER?.role !== "admin") return;
   const btn = $("sync-btn"), label = $("sync-label"), note = $("sync-note");
   if (manual) {
@@ -423,8 +429,10 @@ async function load(manual) {
   }
   let error = null;
   try {
-    const res = await fetch("/api/library").then((r) => r.json());
-    if (res && res.ok) DATA = res;
+    const res = await fetch("/api/library"+((manual||refresh)?"?refresh=1":"")).then((r) => r.json());
+    if (res && res.ok){ DATA = res;
+      if(res.collection){const age=(Date.now()/1000-res.collection.capturedAt)/60;const stamp=new Date(res.collection.capturedAt*1000).toLocaleString();$("sync-note").textContent='Saved cabinet data · '+stamp+(age>10?' · may be out of date':'');}
+    }
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
   try{await loadFavourites();}catch(e){showBanner(e.message);}
@@ -479,7 +487,7 @@ function switchTab(which) {
   $("view-stats").style.display = which === "stats" ? "block" : "none";
   $("view-admin").hidden = which !== "admin" || CURRENT_USER?.role !== "admin";
   $("tab-admin").setAttribute("aria-pressed",String(which === "admin"));
-  if (which === "admin" && CURRENT_USER?.role === "admin") { loadUsers(); updateImageCache(); }
+  if (which === "admin" && CURRENT_USER?.role === "admin") { loadUsers(); updateImageCache(); loadCollection(); }
   $("tab-library").setAttribute("aria-pressed", String(which === "library"));
   $("tab-stats").setAttribute("aria-pressed", String(which === "stats"));
 }
@@ -515,6 +523,16 @@ async function loadInstructions(){
 }
 $('tab-instructions').addEventListener('click',()=>switchTab('instructions'));
 
+async function loadCollection(){
+  try{const r=await fetch('/api/collection');const data=await r.json();if(!r.ok||!data.ok)throw new Error(data.error||'Collection state unavailable.');
+    $('collection-enabled').checked=data.enabled;$('collection-interval').value=data.interval;
+    const date=v=>v?new Date(v*1000).toLocaleString():'Not yet';
+    $('collection-status').textContent=(data.enabled?'Enabled':'Disabled')+' · '+data.pending+' · Last check: '+date(data.lastChecked)+' · Last complete pull: '+date(data.lastSuccess)+(data.lastError?' · '+data.lastError:'');
+    $('collection-size').textContent=(data.historyCounts.library||0)+' changed library snapshots · '+(data.historyCounts.status||0)+' status transitions · '+(data.payloadBytes/1048576).toFixed(2)+' MB archived payload';
+  }catch(e){$('collection-status').textContent=e.message;}
+}
+$('collection-form').addEventListener('submit',async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{await apiPost('/api/collection',{enabled:$('collection-enabled').checked,interval:Number($('collection-interval').value)});await loadCollection();}catch(error){$('collection-status').textContent=error.message;}finally{b.disabled=false;}});
+
 async function loadBranding() {
   const data=await fetch('/api/settings').then(r=>r.json());
   $('site-name').textContent=data.name; $('brand-name').value=data.name; document.title=data.name;
@@ -548,7 +566,7 @@ $('full-resync').addEventListener('click',async()=>{
 });
 $('refresh-btn').addEventListener('click',async()=>{
   const button=$('refresh-btn');button.disabled=true;button.classList.add('syncing');
-  try{const ok=await load(false);showBanner(ok?'Dashboard data refreshed.':'Refresh failed. Showing the last data loaded.');}catch{showBanner('Dashboard refresh failed.');}
+  try{const ok=await load(false,true);showBanner(ok?'Dashboard data refreshed.':'Refresh failed. Showing the last data loaded.');}catch{showBanner('Dashboard refresh failed.');}
   finally{button.disabled=false;button.classList.remove('syncing');}
 });
 $('tab-admin').addEventListener('click',()=>switchTab('admin'));
@@ -579,3 +597,6 @@ $('branding-form').addEventListener('submit',async e=>{
   $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
   await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>load(false),30000);
 })();
+
+$('playfield-lightbox').addEventListener('click',e=>{if(e.target===$('playfield-lightbox'))e.target.close();});
+$('playfield-lightbox').addEventListener('close',()=>{$('playfield-lightbox').innerHTML='';});

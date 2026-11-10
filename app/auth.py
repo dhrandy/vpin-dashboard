@@ -47,6 +47,8 @@ class AuthStore:
                 db.execute("INSERT INTO settings VALUES ('signing_key', ?)", (secrets.token_hex(32),))
             self.key = (row[0] if row else db.execute("SELECT value FROM settings WHERE key='signing_key'").fetchone()[0]).encode()
         with self.db() as db:
+            if 'show_play_time' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_play_time INTEGER NOT NULL DEFAULT 1')
             if 'show_timer' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_timer INTEGER NOT NULL DEFAULT 1')
         os.chmod(self.path, 0o600)
@@ -209,12 +211,12 @@ class AuthStore:
 
     def preferences(self,user_id):
         with self.db() as db:
-            row=db.execute('SELECT colorblind,show_timer FROM preferences WHERE user_id=?',(user_id,)).fetchone()
-            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True}
+            row=db.execute('SELECT colorblind,show_timer,show_play_time FROM preferences WHERE user_id=?',(user_id,)).fetchone()
+            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True}
 
-    def set_preferences(self,user_id,colorblind,show_timer=True):
+    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True):
         with self.lock,self.db() as db:
-            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer',(user_id,int(colorblind),int(show_timer)))
+            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time) VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time',(user_id,int(colorblind),int(show_timer),int(show_play_time)))
         return self.preferences(user_id)
 
     def favourites(self, user_id):

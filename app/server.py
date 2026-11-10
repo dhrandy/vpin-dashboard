@@ -38,6 +38,7 @@ import re
 import stat
 from http.cookies import SimpleCookie
 from auth import AuthStore, AuthError
+from collector import Collector
 import csv
 import io
 import json
@@ -66,6 +67,7 @@ if os.path.isdir(PYLIBS) and PYLIBS not in sys.path:
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTH_DIR = os.environ.get("AUTH_DIR", "/data/auth")
 INSTRUCTIONS_PATH = os.path.join(os.path.dirname(AUTH_DIR), "instructions.md")
+COLLECTOR = None
 AUTH = None
 _AUTH_LOCK = threading.Lock()
 
@@ -265,6 +267,7 @@ def parse_games_export(text):
             "maker": cell(r, cols["manufacturer"]) or None,
             "year": as_year(cell(r, cols["gameYear"])),
             "badges": badges,
+            "attentionReasons": ["No B2S or PUP"] if cols["directB2SFile"]>=0 and cell(r,cols["directB2SFile"]).lower()=="false" and cols["pupPackInstalled"]>=0 and cell(r,cols["pupPackInstalled"]).lower()=="false" and not cell(r,cols["pupPackName"]) else [],
             "lastPlayedAt": parse_cabinet_dt(cell(r, cols["lastPlayed"])),
             "playCount": as_play_count(cell(r, cols["numberPlayed"]))
             if as_play_count(cell(r, cols["numberPlayed"])) is not None
@@ -275,8 +278,9 @@ def parse_games_export(text):
     return out
 
 
-def library_payload():
+def library_payload(strict=False):
     games_raw = bridge("GET", "/api/games/json")
+    if strict and not isinstance(games_raw,list): raise ValueError("Incomplete games response")
     games = games_raw if isinstance(games_raw, list) else []
     export = {}
     try:
@@ -284,7 +288,10 @@ def library_payload():
         if isinstance(exp, dict) and isinstance(exp.get("raw"), str):
             export = parse_games_export(exp["raw"])
     except Exception:
+        if strict: raise
         export = {}
+    if strict and not (isinstance(exp,dict) and isinstance(exp.get("raw"),str) and exp["raw"].strip()): raise ValueError("Incomplete games export")
+    if strict and ("id" not in exp["raw"].splitlines()[0].split(";") or (games and not export)): raise ValueError("Incomplete games export")
     tables = []
     seen = set()
     for g in games:
@@ -303,7 +310,8 @@ def library_payload():
             "maker": ex.get("maker") or pick(g, "manufacturer", "vendor", "maker", "brand"),
             "year": ex.get("year") or as_year(pick(g, "year", "releaseYear", "gameYear")),
             "badges": ex.get("badges", []),
-            "needsAttention": bool(ex) and "B2S" not in ex.get("badges", []),
+            "needsAttention": bool(ex.get("attentionReasons")),
+            "attentionReasons":ex.get("attentionReasons",[]),
             "tags": g.get("tags") if isinstance(g.get("tags"), list) else [],
             "lastPlayedAt": ex.get("lastPlayedAt"),
             "playCount": as_play_count(g.get("numberPlayed"))
@@ -322,7 +330,8 @@ def library_payload():
             "maker": ex.get("maker"),
             "year": ex.get("year"),
             "badges": ex.get("badges", []),
-            "needsAttention": "B2S" not in ex.get("badges", []),
+            "needsAttention": bool(ex.get("attentionReasons")),
+            "attentionReasons":ex.get("attentionReasons",[]),
             "tags": [],
             "lastPlayedAt": ex.get("lastPlayedAt"),
             "playCount": ex.get("playCount"),
@@ -347,10 +356,13 @@ def library_payload():
                 except (TypeError, ValueError):
                     continue
         elif isinstance(hs, dict) and isinstance(hs.get("raw"), str):
+            if strict and not hs["raw"].strip().startswith("gameId;"): raise ValueError("Incomplete scores export")
             scores = parse_raw_scores(hs["raw"])
     except Exception:
+        if strict: raise
         scores = []
 
+    if strict and not (isinstance(hs,dict) and (isinstance(hs.get("highscores"),list) or isinstance(hs.get("raw"),str))): raise ValueError("Incomplete scores")
     playlists = []
     try:
         pls = bridge("GET", "/api/playlists")
@@ -371,8 +383,22 @@ def library_payload():
                     "gameIds": ids,
                 })
     except Exception:
+        if strict: raise
         playlists = []
 
+    if strict and not isinstance(pls,list): raise ValueError("Incomplete playlists")
+    # Older bridges do not have analytics yet. Keep a good library and mark time unknown.
+    totals = {}
+    try:
+        analytics = bridge("GET", "/api/analytics")
+        if isinstance(analytics,dict) and analytics.get("ok") is True and isinstance(analytics.get("entries"),list):
+            for entry in analytics["entries"][:10000]:
+                if isinstance(entry,dict) and type(entry.get("gameId")) is int and type(entry.get("timePlayedSecs")) is int and 0 <= entry["timePlayedSecs"] <= 2147483647:
+                    totals[entry["gameId"]]=entry["timePlayedSecs"]
+    except Exception:
+        pass
+    for table in tables:
+        table["timePlayedSecs"]=totals.get(table["gameId"])
     return {
         "ok": True,
         "tables": tables,
@@ -381,6 +407,17 @@ def library_payload():
         "thumbsEnabled": True,
     }
 
+
+def current_status():
+    health=bridge('GET','/health',timeout=5);status={}
+    if health.get('cabinet_reachable') is True:
+        status=bridge('GET','/api/status',timeout=5)
+    game_id=status.get('gameId')
+    try:
+        game_id=int(game_id) if game_id is not None else None
+    except (ValueError,TypeError):
+        game_id=None
+    return {'ok':True,'health':{k:bool(health[k]) for k in ('cabinet_reachable','game_playing') if k in health},'status':{'gameId':game_id,'started':public_started(status.get('started')) if game_id and game_id>0 else None}}
 
 def bridge_bytes(path, timeout=60):
     """Raw bridge call for endpoints that return files, not JSON."""
@@ -718,7 +755,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             return self._send_html(os.path.join(HERE, "index.html"))
-        if not self._require(admin=path == '/api/admin/users'):
+        if not self._require(admin=path in ('/api/admin/users','/api/collection')):
             return
         if path == '/app.js':
             return self._send_text_file('app.js','application/javascript')
@@ -744,16 +781,15 @@ class Handler(BaseHTTPRequestHandler):
                 if self._session()['role'] != 'admin':
                     state.pop('failedTables',None)
                 return self._send(200,state)
+            if path == '/api/collection':
+                return self._send(200,{'ok':True,**COLLECTOR.summary()}) if COLLECTOR else self._send(503,{'ok':False,'error':'Collector not initialized.'})
             if path == "/api/library":
+                if COLLECTOR:
+                    refresh=parse_qs(urlparse(self.path).query).get('refresh')==['1']
+                    return self._send(200,COLLECTOR.library(refresh=refresh))
                 return self._send(200, safe_value(library_payload()))
             if path == "/api/status":
-                health = bridge("GET", "/health")
-                status = {}
-                try:
-                    status = bridge("GET", "/api/status")
-                except Exception:
-                    status = {}
-                return self._send(200, {"ok": True, "health": {k:bool(health.get(k)) for k in ("cabinet_reachable","game_playing")}, "status": {"gameId":int(status.get("gameId") or 0),"started":public_started(status.get("started")) if int(status.get("gameId") or 0)>0 else None}})
+                return self._send(200,COLLECTOR.status() if COLLECTOR else current_status())
             parts = [p for p in path.split("/") if p]
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "thumb":
                 try:
@@ -821,12 +857,22 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/auth/logout':
                 auth_store().logout(session)
                 return self._auth_reply('')
+            if path == '/api/collection':
+                if set(body)!={'enabled','interval'}:
+                    raise AuthError('Enabled and interval are required.')
+                if not COLLECTOR:
+                    raise AuthError('Collector not initialized.',503)
+                try:
+                    result=COLLECTOR.configure(body['enabled'],body['interval'])
+                except ValueError as error:
+                    raise AuthError(str(error))
+                return self._send(200,{'ok':True,**result})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:
@@ -835,7 +881,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise AuthError('Only table ID and saved state are accepted.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 # Removing a stale favourite must still work after a table is uninstalled.
-                if saved and not any(t['gameId']==game_id for t in library_payload()['tables']):
+                if saved and not any(t['gameId']==game_id for t in (COLLECTOR.library() if COLLECTOR else library_payload())['tables']):
                     raise AuthError('Table is not in the cabinet library.',404)
                 return self._send(200,{'ok':True,'gameIds':store.set_favourite(session['id'],game_id,saved)})
             if path == '/api/settings':
@@ -953,5 +999,7 @@ if __name__ == "__main__":
     except Exception:
         pass
     auth_store()
+    COLLECTOR=Collector(os.path.join(os.path.dirname(AUTH_DIR),'observations'),current_status,lambda:safe_value(library_payload(strict=True)))
+    COLLECTOR.start()
     print(f"vpin-dashboard listening on :{PORT}; HTTPS is required for login", flush=True)
     LimitedServer(("0.0.0.0", PORT), Handler).serve_forever()
