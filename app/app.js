@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 let CURRENT_USER = null;
 let CSRF = "";
 const nativeFetch = window.fetch.bind(window);
-function operationName(url){const p=new URL(url,location.href).pathname;if(p.startsWith('/api/details/'))return 'Table details';if(p.startsWith('/api/scorehistory/'))return 'Score history';if(p.startsWith('/api/admin/users'))return 'User management';return ({'/api/library':'Library refresh','/api/status':'Cabinet status','/api/favourites':'Personal favorites','/api/instructions':'Cabinet instructions','/api/preferences':'Display settings','/api/status/dismiss':'Session dismissal','/api/exit':'Exit table / frontend','/api/play':'Table launch','/api/cache-thumbs':'Image caching','/api/collection':'Background collection settings','/api/settings':'Branding','/api/auth/logout':'Sign out','/api/auth/status':'Sign in'})[p]||'Dashboard request';}
+function operationName(url){const p=new URL(url,location.href).pathname;if(p.startsWith('/api/details/'))return 'Table details';if(p.startsWith('/api/scorehistory/'))return 'Score history';if(p.startsWith('/api/admin/users'))return 'User management';return ({'/api/library':'Library refresh','/api/status':'Cabinet status','/api/favourites':'Personal favorites','/api/hidden':'Hidden tables','/api/instructions':'Cabinet instructions','/api/preferences':'Display settings','/api/status/dismiss':'Session dismissal','/api/exit':'Exit table / frontend','/api/play':'Table launch','/api/cache-thumbs':'Image caching','/api/collection':'Background collection settings','/api/settings':'Branding','/api/auth/logout':'Sign out','/api/auth/status':'Sign in'})[p]||'Dashboard request';}
 function requestFailure(url,write=false){return operationName(url)+(write?' could not be confirmed. Check its current state before trying again.':' could not be loaded. Keeping saved data and retrying when connected.');}
 window.fetch = async (url, options={}) => {
   const headers = new Headers(options.headers || {});
@@ -20,6 +20,9 @@ let STATUS = { state: "unknown", gamePlaying: false, playingText: null };
 let FILTER = "all";
 let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
+let HIDDEN=new Set();
+let HIDDEN_BUSY=false;
+let SHOW_HIDDEN=false;
 let SHOW_TIMER=true;
 let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
@@ -37,7 +40,7 @@ function heartButton(t){
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;renderStatus();renderLibrary();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;SHOW_HIDDEN=data.showHidden===true;$('show-hidden-setting').checked=SHOW_HIDDEN;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
@@ -45,6 +48,7 @@ $('timer-setting').addEventListener('change',async e=>{const checkbox=e.target;c
 $('playtime-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPlayTime:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('status-details-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{statusDetails:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('back-top-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{backToTop:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('show-hidden-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showHidden:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -55,6 +59,37 @@ function statusAgeLabel(checkedAt,now=Date.now()) {if(!Number.isFinite(checkedAt
 function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started).replace(/^Elapsed /,'');const age=$('now-playing').querySelector('.status-age');if(age)age.textContent=statusAgeLabel(STATUS.checkedAt);const dismiss=$('now-playing').querySelector('.dismiss-session');if(dismiss)dismiss.title=statusAgeLabel(STATUS.checkedAt)+'. Studio may retain a session after a crash. Dismiss on this dashboard only; Play stays blocked.';}
 setInterval(updateElapsed,1000);
 async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favorites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
+async function loadHidden(){const response=await fetch('/api/hidden');if(!response.ok)throw new Error('Hidden tables could not be loaded.');const result=await response.json();HIDDEN=new Set(result.gameIds);}
+async function toggleHidden(gameId){
+  if(HIDDEN_BUSY)return;HIDDEN_BUSY=true;document.querySelectorAll('[data-hide]').forEach(b=>b.disabled=true);
+  const hiding=!HIDDEN.has(gameId);
+  try{const result=await apiPost('/api/hidden',{gameId,hidden:hiding});HIDDEN=new Set(result.gameIds);const t=DATA.tables.find(t=>t.gameId===gameId);showBanner((t?t.name:'Table')+(hiding?' hidden. Review and unhide in Settings.':' is visible again.'));}
+  catch(e){showBanner(e.message);}
+  finally{HIDDEN_BUSY=false;renderLibrary();renderStats();const hideBtn=$('detail').querySelector('#detail-hide');if(hideBtn)hideBtn.textContent=HIDDEN.has(gameId)?'Unhide this table':'Hide this table';}
+}
+function renderHiddenPanel(){
+  const list=$('hidden-list');if(!list)return;
+  const rows=[...HIDDEN].map(id=>({id,t:DATA.tables.find(t=>t.gameId===id)})).sort((a,b)=>(a.t?.name||'Table '+a.id).localeCompare(b.t?.name||'Table '+b.id));
+  $('hidden-count').textContent=rows.length?rows.length+' hidden table'+(rows.length===1?'':'s'):'No hidden tables.';
+  list.innerHTML=rows.map(({id,t})=>`<div class="hidden-row"><input type="checkbox" data-hidden-check="${id}" aria-label="Select ${esc(t?t.name:'Table '+id)}"><div><div>${esc(t?t.name:'Table '+id)}${t?'':' <span class="meta">(no longer in the cabinet library)</span>'}</div>${t?`<div class="meta">${esc([t.maker,t.year].filter(Boolean).join(' · '))}</div>`:''}</div><button type="button" class="accountbtn" data-hide="${id}">Unhide</button></div>`).join('');
+  list.querySelectorAll('[data-hide]').forEach(b=>b.addEventListener('click',()=>toggleHidden(Number(b.dataset.hide))));
+  list.querySelectorAll('[data-hidden-check]').forEach(c=>c.addEventListener('change',()=>{$('hidden-unhide-selected').disabled=![...list.querySelectorAll('[data-hidden-check]')].some(x=>x.checked);}));
+  $('hidden-unhide-selected').disabled=true;
+}
+$('hidden-unhide-selected').addEventListener('click',async()=>{
+  const ids=[...document.querySelectorAll('[data-hidden-check]')].filter(x=>x.checked).map(x=>Number(x.dataset.hiddenCheck));
+  for(const id of ids){await toggleHidden(id);}
+});
+function bindCardMenus(root){
+  root.querySelectorAll('.card-menu>button').forEach(btn=>btn.addEventListener('click',event=>{
+    event.stopPropagation();
+    const list=btn.parentElement.querySelector('.card-menu-list');
+    const opening=list.hidden;
+    document.querySelectorAll('.card-menu-list').forEach(l=>{l.hidden=true;l.parentElement.querySelector('button').setAttribute('aria-expanded','false');});
+    list.hidden=!opening;btn.setAttribute('aria-expanded',String(opening));
+  }));
+}
+document.addEventListener('click',event=>{if(!event.target.closest('.card-menu'))document.querySelectorAll('.card-menu-list').forEach(l=>{l.hidden=true;l.parentElement.querySelector('button').setAttribute('aria-expanded','false');});});
 async function toggleFavourite(gameId){
   if(FAVOURITE_BUSY)return;FAVOURITE_BUSY=true;document.querySelectorAll('[data-heart]').forEach(b=>b.disabled=true);
   try{const result=await apiPost('/api/favourites',{gameId,saved:!FAVOURITES.has(gameId)});FAVOURITES=new Set(result.gameIds);}
@@ -129,7 +164,7 @@ function buildMatcher() {
     if (key.startsWith("smart:")) { const s = SMART.find((x) => x[0] === key); return s ? s[2](t) : true; }
     return true;
   };
-  const countFor = (key) => DATA.tables.filter((t) => match(t, key)).length;
+  const countFor = (key) => DATA.tables.filter((t) => SHOW_HIDDEN || !HIDDEN.has(t.gameId)).filter((t) => match(t, key)).length;
   return { match, countFor };
 }
 
@@ -251,7 +286,7 @@ function renderLibrary() {
   const best = bestByTable();
   const q = $("search").value.trim().toLowerCase();
   const sort = $("sort").value;
-  let rows = DATA.tables.filter((t) => M.match(t, FILTER))
+  let rows = DATA.tables.filter((t) => SHOW_HIDDEN || !HIDDEN.has(t.gameId)).filter((t) => M.match(t, FILTER))
     .map((t) => ({ ...t, bestScore: best.get(t.gameId)?.best ?? null, bestInitials: best.get(t.gameId)?.initials ?? null }));
   if (q) rows = rows.filter((t) => t.name.toLowerCase().includes(q) || (t.maker || "").toLowerCase().includes(q) || String(t.year || "").includes(q));
   if (sort === "name") rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -262,7 +297,7 @@ function renderLibrary() {
   if (sort === "year-desc") rows.sort((a, b) => (b.year ?? -1) - (a.year ?? -1));
   if (sort === "year-asc") rows.sort((a, b) => (a.year ?? 99999) - (b.year ?? 99999));
   $("heading").textContent = headingFor(FILTER);
-  $("count").textContent = rows.length + " of " + DATA.tables.length + " tables";
+  $("count").textContent = rows.length + " of " + DATA.tables.length + " tables" + (HIDDEN.size ? " (" + HIDDEN.size + " hidden" + (SHOW_HIDDEN ? ", shown dimmed" : "") + ")" : "");
   const empty = $("empty");
   if (DATA.tables.length === 0) {
     empty.style.display = "block";
@@ -274,7 +309,7 @@ function renderLibrary() {
   if (rows.length === 0) $("empty-title").textContent = "No tables match that search and filter";
   const canPlay = CURRENT_USER?.role === "admin" && STATUS.state === "online" && !STATUS.gamePlaying;
   $("grid").innerHTML = rows.map((t) => `
-    <article class="card">
+    <article class="card${HIDDEN.has(t.gameId) ? " ishidden" : ""}">
       <div class="artwrap"><button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
         ${DATA.thumbsEnabled ? `<img class="artimg" src="/api/thumb/${t.gameId}?v=2&r=${encodeURIComponent(t.mediaRevision || "")}" alt="" loading="lazy">` : ""}
         ${(t.attentionReasons||[]).length ? `<span class="flag" title="${esc(t.attentionReasons.join('; '))}. Open table details for context.">${esc(t.attentionReasons[0])}${t.attentionReasons.length>1?' +'+(t.attentionReasons.length-1):''}</span>` : ""}
@@ -282,50 +317,55 @@ function renderLibrary() {
       </button>${canLaunch(t) ? `<button class="play" data-play="${t.gameId}" ${canPlay ? "" : "disabled"} aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : ""}</div>
       ${heartButton(t)}
       <div class="cardbody">
-        <p class="tname">${esc(t.name)}</p>
+        <p class="tname">${esc(t.name)}${HIDDEN.has(t.gameId) ? '<span class="hidden-badge">Hidden</span>' : ""}</p>
         <p class="meta" title="${esc(tableMeta(t))}" aria-label="${esc(tableMeta(t))}">${t.maker ? `<span class="meta-maker">${esc(t.maker)}</span><span class="meta-fixed">·</span>` : ""}${t.year ? `<span class="meta-fixed">${esc(t.year)} ·</span>` : ""}<span class="meta-fixed">${esc(playCountLabel(t))}</span></p>
         ${SHOW_PLAY_TIME?`<p class="playtime" title="Cumulative play time reported by Studio's frontend analytics, not the duration of the last session">${esc(totalTimeLabel(t))}</p>`:''}
         <div class="cardfeatures">${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}</div>
       </div>
       <div class="cardfoot">
         <span class="top">${t.bestScore !== null ? `Top${t.bestInitials ? " · " + esc(t.bestInitials) : ""} · <b>${fmt(t.bestScore)}</b>` : "No scores yet"}</span>
+        <div class="card-menu"><button type="button" data-menu="${t.gameId}" aria-label="More actions for ${esc(t.name)}" aria-haspopup="menu" aria-expanded="false">⋯</button><div class="card-menu-list" hidden role="menu"><button type="button" data-hide="${t.gameId}" role="menuitem">${HIDDEN.has(t.gameId) ? "Unhide table" : "Hide table"}</button></div></div>
       </div>
     </article>`).join("");
   bindHearts($("grid"));
+  bindCardMenus($("grid"));
+  $("grid").querySelectorAll("[data-hide]").forEach((b) => b.addEventListener("click", () => toggleHidden(Number(b.dataset.hide))));
+  renderHiddenPanel();
   document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   document.querySelectorAll(".artimg").forEach(i=>i.addEventListener("error",()=>i.remove(),{once:true}));
   document.querySelectorAll("[data-play]").forEach((b) => b.addEventListener("click", () => play(Number(b.dataset.play))));
 }
 
 function renderStats() {
-  const best = bestByTable();
+  const statTables = DATA.tables.filter((t) => !HIDDEN.has(t.gameId));
+  const best = new Map([...bestByTable()].filter(([id]) => !HIDDEN.has(id)));
   const withScores = [...best.keys()].length;
   const highest = Math.max(0, ...[...best.values()].map((v) => v.best));
   const makers = new Map();
   const decades = new Map();
-  for (const t of DATA.tables) {
+  for (const t of statTables) {
     if (t.maker) makers.set(t.maker, (makers.get(t.maker) || 0) + 1);
     if (t.year) { const d = Math.floor(t.year / 10) * 10 + "s"; decades.set(d, (decades.get(d) || 0) + 1); }
   }
   $("tiles").innerHTML = [
-    ["Tables on cabinet", fmt(DATA.tables.length)],
-    ["Recorded plays", fmt(DATA.tables.reduce((n, t) => n + (t.playCount ?? 0), 0))],
-    ["Tables played", DATA.tables.filter((t) => t.playCount > 0).length],
+    ["Tables on cabinet", fmt(statTables.length)],
+    ["Recorded plays", fmt(statTables.reduce((n, t) => n + (t.playCount ?? 0), 0))],
+    ["Tables played", statTables.filter((t) => t.playCount > 0).length],
     ["Tables with scores", withScores],
   ].map(([l, v]) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
-  const counted = DATA.tables.filter((t) => Number.isInteger(t.playCount) && t.playCount >= 0);
+  const counted = statTables.filter((t) => Number.isInteger(t.playCount) && t.playCount >= 0);
   const nameOrder = (a, b) => a.name.localeCompare(b.name);
   const most = [...counted].filter((t) => t.playCount > 0).sort((a, b) => b.playCount - a.playCount || nameOrder(a, b)).slice(0, 10);
   const least = [...counted].sort((a, b) => a.playCount - b.playCount || nameOrder(a, b)).slice(0, 10);
   const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></div>`).join("");
   $("most-played").innerHTML = most.length ? playRows(most, true) : '<p class="muted">No positive play counts reported yet.</p>';
   $("least-played").innerHTML = least.length ? playRows(least, false) : '<p class="muted">Play counts are not available from the cabinet.</p>';
-  const recent = DATA.tables.filter((t) => t.lastPlayedAt && Number.isFinite(Date.parse(t.lastPlayedAt)))
+  const recent = statTables.filter((t) => t.lastPlayedAt && Number.isFinite(Date.parse(t.lastPlayedAt)))
     .sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt) || nameOrder(a, b)).slice(0, 10);
   const playedDate = (value) => new Date(value).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit"});
   $("recent-tables").innerHTML = recent.length ? recent.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><button class="stats-table" data-open="${t.gameId}">${esc(t.name)}</button><time class="rank-time" datetime="${esc(t.lastPlayedAt)}">${esc(playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
   $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
-  const tops = DATA.tables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
+  const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
   const max = tops[0]?.best || 1;
   $("top-tables").innerHTML = tops.length ? tops.map((t, i) => `
@@ -368,13 +408,15 @@ async function openDetail(gameId) {
     <div id="detail-extra" class="muted">Loading cabinet details…</div><p id="detail-cache-note" class="panel-note" role="status" hidden></p>
     ${canLaunch(t) ? `<button class="play" id="detail-play" style="width:100%;margin-top:14px;padding:12px" ${STATUS.state === "online" && !STATUS.gamePlaying ? "" : "disabled"}>▶ Play on the cabinet</button>
     <p class="muted launch-note" style="text-align:center">Launches through VPin Studio on the cabinet.</p>` : ""}
-    <button id="detail-close" style="width:100%;margin-top:6px;padding:10px;background:var(--surface2);color:var(--text);border:0;border-radius:6px;cursor:pointer">Close</button>`;
+    <button id="detail-hide" class="modal-action">${HIDDEN.has(gameId)?'Unhide this table':'Hide this table'}</button>
+    <button id="detail-close" class="modal-action">Close</button>`;
   MODAL_GENERATION++;MODAL_UNSAVED={};
   d.dataset.gameId = String(gameId);
   d.showModal();bindHearts(d);
   d.querySelector(".dimg")?.addEventListener("error",e=>{e.target.closest(".detail-media").classList.add("no-preview");e.target.closest("button").remove();},{once:true});
   d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>{const box=$('playfield-lightbox');box.innerHTML=`<button class="lightbox-close modal-close" type="button" aria-label="Close enlarged playfield" title="Close enlarged playfield"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>`;box.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>box.close()));box.showModal();});
   loadScoreHistory(gameId);
+  $("detail-hide").addEventListener("click", () => toggleHidden(gameId));
   $("detail-close").addEventListener("click", () => d.close());
   $("detail-close-top").addEventListener("click", () => d.close());
   $("detail-play")?.addEventListener("click", () => { d.close(); play(gameId); });
@@ -508,6 +550,7 @@ async function performLoad(manual,refresh=false) {
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
   try{await loadFavourites();}catch(e){readIssues.push('Personal favorites unavailable');}
+  try{await loadHidden();}catch(e){readIssues.push('Hidden tables unavailable');}
   renderLibrary(); renderStats();
   await loadStatus();
   updateModalCache();

@@ -15,7 +15,7 @@ class PreferenceTests(unittest.TestCase):
                 db.execute('INSERT INTO favourites VALUES (1,42)')
                 db.execute('ALTER TABLE preferences DROP COLUMN back_to_top')
             store=AuthStore(folder)
-            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True))
+            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True,showHidden=False))
             store.set_preferences(1,True,False,False,True,False)
             self.assertFalse(AuthStore(folder).preferences(1)['backToTop'])
             self.assertTrue(store.preferences(2)['backToTop'])

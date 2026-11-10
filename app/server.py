@@ -839,6 +839,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200,{'ok':True,**auth_store().preferences(self._session()['id'])})
         if path == '/api/favourites':
             return self._send(200,{'ok':True,'gameIds':auth_store().favourites(self._session()['id'])})
+        if path == '/api/hidden':
+            return self._send(200,{'ok':True,'gameIds':auth_store().hidden(self._session()['id'])})
         if path == '/api/instructions':
             return self._send(200,read_instructions())
         if path == '/api/settings':
@@ -969,7 +971,7 @@ class Handler(BaseHTTPRequestHandler):
                 store = auth_store()
                 cookie = store.setup(body,self.client_address[0]) if path.endswith('/setup') else store.login(body.get('username'),body.get('password'),self.client_address[0])
                 return self._auth_reply(cookie)
-            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/preferences'))
+            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/hidden','/api/preferences'))
             if not session:
                 return
             if not self._csrf(session) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
@@ -999,11 +1001,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise AuthError(str(error))
                 return self._send(200,{'ok':True,**result})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:
@@ -1015,6 +1017,17 @@ class Handler(BaseHTTPRequestHandler):
                 if saved and not any(t['gameId']==game_id for t in (COLLECTOR.library() if COLLECTOR else library_payload())['tables']):
                     raise AuthError('Table is not in the cabinet library.',404)
                 return self._send(200,{'ok':True,'gameIds':store.set_favourite(session['id'],game_id,saved)})
+            if path == '/api/hidden':
+                game_id=body.get('gameId');is_hidden=body.get('hidden')
+                if type(game_id) is not int or not 0<game_id<=2147483647 or type(is_hidden) is not bool:
+                    raise AuthError('Valid table ID and hidden state required.')
+                if set(body)!={'gameId','hidden'}:
+                    raise AuthError('Only table ID and hidden state are accepted.')
+                store=auth_store();store.personal_write_throttle(session['id'])
+                # Unhiding a stale entry must still work after a table is uninstalled.
+                if is_hidden and not any(t['gameId']==game_id for t in (COLLECTOR.library() if COLLECTOR else library_payload())['tables']):
+                    raise AuthError('Table is not in the cabinet library.',404)
+                return self._send(200,{'ok':True,'gameIds':store.set_hidden(session['id'],game_id,is_hidden)})
             if path == '/api/settings':
                 name = body.get('name')
                 if public_text(name) != name:

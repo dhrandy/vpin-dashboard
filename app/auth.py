@@ -39,6 +39,7 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER PRIMARY KEY, colorblind INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS favourites (user_id INTEGER NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY(user_id,game_id));
+                CREATE TABLE IF NOT EXISTS hidden (user_id INTEGER NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY(user_id,game_id));
                 CREATE TABLE IF NOT EXISTS attempts (
                     bucket TEXT PRIMARY KEY, count INTEGER NOT NULL, until_at INTEGER NOT NULL);
             ''')
@@ -55,6 +56,8 @@ class AuthStore:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_timer INTEGER NOT NULL DEFAULT 1')
             if 'back_to_top' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN back_to_top INTEGER NOT NULL DEFAULT 1')
+            if 'show_hidden' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_hidden INTEGER NOT NULL DEFAULT 0')
         os.chmod(self.path, 0o600)
         if self.needs_setup() and not os.path.exists(self.setup_path):
             fd = os.open(self.setup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -219,12 +222,12 @@ class AuthStore:
 
     def preferences(self,user_id):
         with self.db() as db:
-            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top FROM preferences WHERE user_id=?',(user_id,)).fetchone()
-            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True}
+            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden FROM preferences WHERE user_id=?',(user_id,)).fetchone()
+            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True,'showHidden':bool(row[5]) if row else False}
 
-    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True):
+    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True,show_hidden=False):
         with self.lock,self.db() as db:
-            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top)))
+            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top,show_hidden=excluded.show_hidden',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top),int(show_hidden)))
         return self.preferences(user_id)
 
     def favourites(self, user_id):
@@ -239,6 +242,20 @@ class AuthStore:
             if row and row[0]>=120:
                 raise AuthError('Too many personal setting changes. Try again in 15 minutes.',429)
             db.execute('INSERT INTO attempts VALUES (?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1',(key,now+900))
+
+    def hidden(self, user_id):
+        with self.db() as db:
+            return [r[0] for r in db.execute('SELECT game_id FROM hidden WHERE user_id=? ORDER BY game_id',(user_id,))]
+
+    def set_hidden(self,user_id,game_id,is_hidden):
+        with self.lock,self.db() as db:
+            if is_hidden:
+                if db.execute('SELECT count(*) FROM hidden WHERE user_id=?',(user_id,)).fetchone()[0]>=10000:
+                    raise AuthError('Hidden table limit reached.')
+                db.execute('INSERT OR IGNORE INTO hidden VALUES (?,?)',(user_id,game_id))
+            else:
+                db.execute('DELETE FROM hidden WHERE user_id=? AND game_id=?',(user_id,game_id))
+        return self.hidden(user_id)
 
     def set_favourite(self,user_id,game_id,saved):
         with self.lock,self.db() as db:
