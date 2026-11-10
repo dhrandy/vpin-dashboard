@@ -26,6 +26,7 @@ class TableCache:
     @contextmanager
     def db(self):
         db=sqlite3.connect(self.path,timeout=5)
+        db.execute("PRAGMA synchronous=FULL")
         try:
             with db:
                 yield db

@@ -42,6 +42,7 @@ class Collector:
     def db(self):
         with self.lock:
             db = sqlite3.connect(self.path, timeout=10)
+            db.execute("PRAGMA synchronous=FULL")
             try:
                 with db:
                     yield db

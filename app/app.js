@@ -212,7 +212,7 @@ function renderStatus() {
   label.textContent=labels[state];
   for(const light of [dot,$('mobile-status')]){light.className='dot '+(light.id==='mobile-status'?'mobile-status ':'')+'light-'+state;light.style.background='';light.style.borderRadius='';light.title=labels[state]+'. See Status key in Settings.';light.setAttribute('aria-label',labels[state]);light.tabIndex=0;}
   const pill=dot.closest('.pill');pill.title=dot.title;pill.setAttribute('aria-label',labels[state]);
-  const exit=$('exit-btn');exit.hidden=CURRENT_USER?.role!=='admin';exit.disabled=EXIT_PENDING||!STATUS.gamePlaying||!STATUS.started||!STATUS.gameId||STATUS.state!=='online'||!!stale;exit.title=exit.disabled?'Exit needs a fresh online active session. Refresh status if needed.':'Exit table / frontend - confirmation required';
+  const exit=$('exit-btn');exit.hidden=CURRENT_USER?.role!=='admin'||!STATUS.gamePlaying;exit.disabled=EXIT_PENDING||!STATUS.gamePlaying||!STATUS.started||!STATUS.gameId||STATUS.state!=='online'||!!stale;exit.title=exit.disabled?'Exit needs a fresh online active session. Refresh status if needed.':'Exit table / frontend - confirmation required';
   const np = $("now-playing");
   if (STATUS.gamePlaying) {
     np.style.display="flex";np.innerHTML="";
@@ -360,10 +360,11 @@ async function openDetail(gameId) {
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
     ${entry ? entry.scores.map((s) => `<div class="row"><span>#${s.rank} ${esc(s.initials || "—")}</span><strong style="color:var(--accent)">${fmt(s.score)}</strong></div>`).join("") : '<p class="muted">No scores recorded on this table.</p>'}
     <section class="score-history"><h3>Recent score changes</h3><p class="panel-note">Latest saved highscore snapshots, not results from every play. Expand a date to see its scores.</p><div id="detail-history" class="muted">Loading score history…</div></section>
-    <div id="detail-extra" class="muted">Loading cabinet details…</div>
+    <div id="detail-extra" class="muted">Loading cabinet details…</div><p id="detail-cache-note" class="panel-note" role="status" hidden></p>
     ${canLaunch(t) ? `<button class="play" id="detail-play" style="width:100%;margin-top:14px;padding:12px" ${STATUS.state === "online" && !STATUS.gamePlaying ? "" : "disabled"}>▶ Play on the cabinet</button>
     <p class="muted launch-note" style="text-align:center">Launches through VPin Studio on the cabinet.</p>` : ""}
     <button id="detail-close" style="width:100%;margin-top:6px;padding:10px;background:var(--surface2);color:var(--text);border:0;border-radius:6px;cursor:pointer">Close</button>`;
+  MODAL_GENERATION++;MODAL_UNSAVED={};
   d.dataset.gameId = String(gameId);
   d.showModal();bindHearts(d);
   d.querySelector(".dimg")?.addEventListener("error",e=>e.target.closest("button").remove(),{once:true});
@@ -375,11 +376,15 @@ async function openDetail(gameId) {
 }
 
 const MODAL_CACHE=new Map();
+let MODAL_UNSAVED={};
+let MODAL_GENERATION=0;
+function renderUnsavedNote(){const node=$('detail-cache-note');if(!node)return;const labels=Object.keys(MODAL_UNSAVED).map(kind=>kind==='details'?'cabinet details':'score history');node.hidden=labels.length===0;if(labels.length)node.textContent='Not saved yet: '+labels.join(' and ')+'. '+(Object.values(MODAL_UNSAVED).some(Boolean)?'Checking the cabinet...':'No saved response is available. Sync preloads this data while the cabinet is online and idle; a failed read can also leave it unsaved.');}
 function modalCacheNote(res){const c=res.cache;if(!c)return '';if(c.notSaved)return c.refreshing?'Not saved yet. Checking the cabinet...':'Not saved yet. Cabinet must be online and idle to save this data.';return 'Saved '+new Date(c.savedAt*1000).toLocaleString()+(c.refreshing?' · Checking for updates.':'.');}
 function renderModalData(kind,gameId,res){
   if($('detail').dataset.gameId!==String(gameId)||!$('detail').open)return;
   const node=$(kind==='details'?'detail-extra':'detail-history');
-  if(res.cache?.notSaved){node.textContent=modalCacheNote(res);return;}
+  if(res.cache?.notSaved){MODAL_UNSAVED[kind]=res.cache.refreshing===true;node.textContent='';renderUnsavedNote();return;}
+  delete MODAL_UNSAVED[kind];renderUnsavedNote();
   if(kind==='details'){
     const fields = res && res.details && typeof res.details === "object"
       ? Object.entries(res.details).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v) && v !== "").slice(0, 20) : [];
@@ -401,29 +406,31 @@ function renderModalData(kind,gameId,res){
   const note=document.createElement('p');note.className='panel-note';note.textContent=modalCacheNote(res);node.prepend(note);
 }
 async function loadModalData(kind,gameId){
+  const generation=MODAL_GENERATION;
   const key=kind+'/'+gameId,previous=MODAL_CACHE.get(key);
   if(previous)renderModalData(kind,gameId,previous);
   try{
     for(let attempt=0;attempt<8;attempt++){
-      if($('detail').dataset.gameId!==String(gameId)||!$('detail').open)return;
+      if(generation!==MODAL_GENERATION||$('detail').dataset.gameId!==String(gameId)||!$('detail').open)return;
       const response=await fetch('/api/'+key);
       if(!response.ok)throw new Error('Saved table data is unavailable.');
       const res=await response.json();
+      if(generation!==MODAL_GENERATION)return;
       if(!res.cache?.notSaved && (kind==='details'?!res.details:!Array.isArray(res.scores)))throw new Error('Saved table data is unavailable.');
       if(!res.cache?.notSaved){MODAL_CACHE.set(key,res);if(MODAL_CACHE.size>100)MODAL_CACHE.delete(MODAL_CACHE.keys().next().value);}
       renderModalData(kind,gameId,res);
       if(!res.cache?.refreshing)return;
       await new Promise(resolve=>setTimeout(resolve,1500));
     }
-    if($('detail').dataset.gameId===String(gameId)){
+    if(generation===MODAL_GENERATION && $('detail').dataset.gameId===String(gameId)){
       const node=$(kind==='details'?'detail-extra':'detail-history');
-      if(!MODAL_CACHE.has(key))node.textContent='Not saved yet. The cabinet check is taking longer than expected. Reopen this table later.';
+      if(!MODAL_CACHE.has(key)){MODAL_UNSAVED[kind]=false;node.textContent='';renderUnsavedNote();}
     }
   }catch{
-    if($('detail').dataset.gameId!==String(gameId))return;
+    if(generation!==MODAL_GENERATION||$('detail').dataset.gameId!==String(gameId))return;
     const node=$(kind==='details'?'detail-extra':'detail-history');
     if(previous){renderModalData(kind,gameId,previous);const note=document.createElement('p');note.className='panel-note';note.textContent='Update unavailable. Showing last saved data.';node.prepend(note);}
-    else node.textContent='Not saved yet. Data is unavailable; reopen this table when the cabinet is online and idle.';
+    else{MODAL_UNSAVED[kind]=false;node.textContent='';renderUnsavedNote();}
   }
 }
 function loadScoreHistory(gameId){return loadModalData('scorehistory',gameId);}

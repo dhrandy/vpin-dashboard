@@ -1,6 +1,12 @@
 <!doctype html>
 <html lang="en">
 <head>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/pwa-icon-192.png">
+<meta name="theme-color" content="#0b1220">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
@@ -255,7 +261,7 @@
   </section>
   <section id="view-instructions" class="instructions-page" hidden><h2>Instructions</h2><div id="instructions-content" role="region" aria-label="Cabinet instructions"></div><p id="instructions-admin-note" class="muted" hidden>Edit instructions.md in the dashboard data volume, then tap Refresh. Supports headings, paragraphs, lists and fenced code blocks. Raw HTML and links display as text. Maximum 64 KB, UTF-8.</p></section>
   <section id="view-settings" class="instructions-page" hidden>
-<h2>Settings</h2>
+<h2>Settings</h2><div class="panel"><h3>Install on your phone</h3><button id="install-app" type="button" class="accountbtn" hidden>Install app</button><p id="install-note" class="muted">Use your browser menu to add this app to your home screen. HTTPS is required.</p></div>
     <div class="panel"><h3>Cabinet status key</h3><p class="muted">Header lights show the last reported status. Hover or focus for its label. Studio reports a session, not a process check.</p><div class="status-key">
       <div class="status-key-row"><span class="status-key-icon light-idle" aria-hidden="true"></span><div>Idle<p>Online, with no active table reported.</p></div></div>
       <div class="status-key-row"><span class="status-key-icon light-busy" aria-hidden="true"></span><div>Busy<p>Studio reports an active table. Play stays blocked.</p></div></div>
@@ -279,5 +285,6 @@
 <dialog id="detail"></dialog>
 <dialog id="playfield-lightbox" aria-label="Enlarged playfield"></dialog>
 <script src="/app.js" defer></script>
+<script src="/pwa.js" defer></script>
 </body>
 </html>

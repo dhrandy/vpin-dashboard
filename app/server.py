@@ -129,7 +129,7 @@ def modal_read(kind, game_id):
         raise ValueError('Cabinet not known idle')
     raw = bridge('GET', f'/api/{kind}/{game_id}', timeout=8)
     if kind == 'scorehistory':
-        if not isinstance(raw,dict) or not isinstance(raw.get('scores'),list):
+        if not isinstance(raw,dict) or not isinstance(raw.get('scores'),list) or any(not isinstance(h,dict) or not isinstance(h.get('scores'),list) or any(not isinstance(score,dict) for score in h['scores']) for h in raw['scores']):
             raise ValueError('Invalid history response')
         return safe_history(raw)
     if not isinstance(raw, dict) or raw.get('ok') is False or 'raw' in raw:
@@ -436,12 +436,16 @@ def library_payload(strict=False):
     totals = {}
     try:
         analytics = bridge("GET", "/api/analytics")
+        if strict and not (isinstance(analytics,dict) and analytics.get("ok") is True and isinstance(analytics.get("entries"),list)):
+            raise ValueError("Incomplete analytics response")
         if isinstance(analytics,dict) and analytics.get("ok") is True and isinstance(analytics.get("entries"),list):
             for entry in analytics["entries"][:10000]:
                 if isinstance(entry,dict) and type(entry.get("gameId")) is int and type(entry.get("timePlayedSecs")) is int and 0 <= entry["timePlayedSecs"] <= 2147483647:
                     totals[entry["gameId"]]=entry["timePlayedSecs"]
+    except urllib.error.HTTPError as error:
+        if strict and error.code != 404:raise
     except Exception:
-        pass
+        if strict:raise
     for table in tables:
         table["timePlayedSecs"]=totals.get(table["gameId"])
     return {
@@ -599,8 +603,13 @@ def _store_normalized(card_path, detail_path, data):
             out = img
             if img.width > width:
                 out = img.resize((width, round(img.height * width / img.width)), Image.Resampling.LANCZOS)
-            out.save(path + ".tmp", "JPEG", quality=quality)
+            with open(path + ".tmp", "wb") as target:
+                out.save(target,"JPEG",quality=quality)
+                target.flush();os.fsync(target.fileno())
             os.replace(path + ".tmp", path)
+            directory=os.open(os.path.dirname(path) or ".",os.O_RDONLY)
+            try:os.fsync(directory)
+            finally:os.close(directory)
         return True
     except Exception:
         return False
@@ -690,7 +699,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet")
         self.send_header("Strict-Transport-Security", "max-age=31536000")
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'none'; manifest-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
 
@@ -768,7 +777,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_file(self, path, content_type):
         try:
-            if path in (os.path.join(HERE,'brand-default.png'),os.path.join(HERE,'favicon-default.png')):
+            if path in tuple(os.path.join(HERE,name) for name in ('brand-default.png','favicon-default.png','pwa-icon-192.png','pwa-icon-512.png')):
                 with open(path+'.b64','rb') as f:
                     data=base64.b64decode(f.read(),validate=False)
             else:
@@ -784,6 +793,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path in ('/sw.js','/manifest.webmanifest'):
+            return self._send_text_file(path[1:],'application/javascript' if path=='/sw.js' else 'application/manifest+json')
+        if path in ('/pwa-icon-192.png','/pwa-icon-512.png'):
+            return self._send_file(os.path.join(HERE,path[1:]),'image/png')
         if path == '/brand-default.png':
             return self._send_file(os.path.join(HERE,'brand-default.png'),'image/png')
         if path in ('/favicon.png','/favicon.ico'):
@@ -809,8 +822,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_html(os.path.join(HERE, "index.html"))
         if not self._require(admin=path in ('/api/admin/users','/api/collection')):
             return
-        if path == '/app.js':
-            return self._send_text_file('app.js','application/javascript')
+        if path in ('/app.js','/pwa.js'):
+            return self._send_text_file(path[1:],'application/javascript')
         if path == '/api/preferences':
             return self._send(200,{'ok':True,**auth_store().preferences(self._session()['id'])})
         if path == '/api/favourites':
