@@ -216,7 +216,7 @@ The server calls vpin-bridge for games JSON/export, highscores, playlists, descr
 
 ## AI usage
 
-AI-assisted development was used for this project. The maintainer reviews and decides what ships. This is alpha software; automated checks do not replace independent security review or testing on your own hardware. Report bugs without sharing credentials, cabinet addresses or private exports.
+AI was used in development, with extensive automated testing. Testing is not a guarantee that every setup or edge case will work. The maintainer reviews and decides what ships. This is alpha software; automated checks do not replace independent security review or testing on your own hardware. Report bugs without sharing credentials, cabinet addresses or private exports.
 
 ## Browser connection recovery
 
