@@ -54,6 +54,17 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        # A configured service must not forward credentials or actions elsewhere.
+        return None
+
+_UPSTREAM = urllib.request.build_opener(_NoRedirect())
+
+def upstream_open(request, timeout):
+    return _UPSTREAM.open(request, timeout=timeout)
+
+
 PORT = int(os.environ.get("PORT", "8080"))
 BRIDGE_URL = os.environ.get("VPIN_BRIDGE_URL", "").rstrip("/")
 API_KEY = os.environ.get("VPIN_API_KEY", "")
@@ -178,7 +189,7 @@ def bridge(method, path, payload=None, timeout=30):
     req.add_header("Accept", "application/json")
     if data:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with upstream_open(req, timeout=timeout) as resp:
         body = resp.read(16*1024*1024+1)
         if len(body)>16*1024*1024:raise ValueError("Bridge response exceeds limit")
         try:
@@ -474,7 +485,7 @@ def bridge_bytes(path, timeout=60):
         raise RuntimeError("VPIN_BRIDGE_URL is not set in Dockhand Environment")
     req = urllib.request.Request(BRIDGE_URL + path, method="GET")
     req.add_header("X-Api-Key", API_KEY)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with upstream_open(req, timeout=timeout) as resp:
         body=resp.read(32*1024*1024+1)
         if len(body)>32*1024*1024:raise ValueError("Image exceeds byte limit")
         return resp.headers.get("Content-Type", ""),body

@@ -710,7 +710,7 @@ function resumeDashboardReads(){if(CURRENT_USER && !document.hidden && navigator
 document.addEventListener('visibilitychange',resumeDashboardReads);
 window.addEventListener('online',resumeDashboardReads);
 
-function updateBackToTop(){const b=$('back-to-top');if(!b)return;b.hidden=!BACK_TO_TOP || $('view-library').hidden || window.scrollY<window.innerHeight*.8;if(b.hidden)return;b.style.transform='';for(let step=0;step<5;step++){const r=b.getBoundingClientRect();const hit=[...document.querySelectorAll('.artwrap>.play')].some(p=>{const q=p.getBoundingClientRect();return r.left<q.right+8 && r.right>q.left-8 && r.top<q.bottom+8 && r.bottom>q.top-8;});if(!hit)break;b.style.transform='translateY(-'+((step+1)*56)+'px)';}}
+function updateBackToTop(){const b=$('back-to-top');if(!b)return;b.hidden=!BACK_TO_TOP || getComputedStyle($('view-library')).display==='none' || window.scrollY<window.innerHeight*.8;if(b.hidden)return;b.style.transform='';for(let step=0;step<5;step++){const r=b.getBoundingClientRect();const hit=[...document.querySelectorAll('.artwrap>.play')].some(p=>{const q=p.getBoundingClientRect();return r.left<q.right+8 && r.right>q.left-8 && r.top<q.bottom+8 && r.bottom>q.top-8;});if(!hit)break;b.style.transform='translateY(-'+((step+1)*56)+'px)';}}
 window.addEventListener('scroll',updateBackToTop,{passive:true});
 window.addEventListener('resize',updateBackToTop);
 $('back-to-top').addEventListener('click',()=>{window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});

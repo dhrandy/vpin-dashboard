@@ -228,8 +228,12 @@ Manual-action failures name the operation. Network failures after a write say it
 
 ## Tests
 
-Run the synthetic collector regression suite with `python -m unittest discover -s tests -v`. It requires no cabinet access. UI/security and resource checks do not guarantee identical results on every Docker host.
+Run the synthetic collector, account/security, upstream redirect, interrupted-write, cache, preference and PWA regression tests with `python -m unittest discover -s tests -v`. It requires no cabinet access. UI/security and resource checks do not guarantee identical results on every Docker host.
 
 ## License
 
 Copyright dhrandy. All rights reserved. No license is granted.
+
+### Upstream request boundary
+
+The dashboard does not follow redirects from the configured bridge URL. Use the bridge's direct private base address, not a redirecting URL. This prevents forwarding its API key or redirecting a cabinet action to another destination. An in-flight sign-in is rejected if the account password or active state changes before its session is created. These are local regression-tested protections, not a live server or network audit.

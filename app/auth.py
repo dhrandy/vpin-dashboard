@@ -152,6 +152,10 @@ class AuthStore:
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         now = int(time.time())
         with self.lock, self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            current = db.execute('SELECT password,active FROM users WHERE id=?', (row['id'],)).fetchone()
+            if not current or not current['active'] or current['password'] != row['password']:
+                raise AuthError('Credentials changed. Sign in again.', 401)
             db.execute('DELETE FROM sessions WHERE expires < ?', (now,))
             db.execute('DELETE FROM sessions WHERE user_id=? AND token NOT IN (SELECT token FROM sessions WHERE user_id=? ORDER BY expires DESC LIMIT 9)', (row['id'],row['id']))
             db.execute('INSERT INTO sessions VALUES (?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(),row['id'],csrf,now+self.SESSION_SECONDS))
