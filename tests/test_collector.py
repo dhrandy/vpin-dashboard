@@ -76,6 +76,28 @@ class Tests(unittest.TestCase):
   self.assertEqual(os.stat(self.c.path).st_mode&0o777,0o600)
   self.c.start();self.c.thread.join(timeout=.15);self.c.stop()
   self.assertIn('library',self.calls)
+ def test_dismiss_exact_session_persists_without_changing_busy(self):
+  self.state['status']={'gameId':12,'started':'2026-11-09T20:00:00+00:00'};self.state['health']['game_playing']=True
+  self.c.step();result=self.c.dismiss_session(12,self.state['status']['started'])
+  self.assertTrue(result['dismissed']);self.assertEqual(result['status']['gameId'],12);self.assertTrue(result['health']['game_playing'])
+  other=Collector(os.path.dirname(self.c.path),self.status,self.library,clock=lambda:self.t)
+  self.assertTrue(other.status()['dismissed'])
+  self.advance();self.c.step();self.assertTrue(self.c.status()['dismissed'])
+  self.state['status']['started']='2026-11-09T21:00:00+00:00';self.advance();self.c.step();self.assertFalse(self.c.status()['dismissed'])
+ def test_dismiss_conflict_and_unknown_start(self):
+  self.c.step()
+  for gid,start in [(12,'x'),(True,'x'),(0,None)]:
+   with self.assertRaises(ValueError):self.c.dismiss_session(gid,start)
+  self.state['status']={'gameId':12,'started':'2026-11-09T20:00:00+00:00'};self.state['health']['game_playing']=True
+  self.advance();self.c.step();self.advance(126)
+  with self.assertRaises(ValueError):self.c.dismiss_session(12,self.state['status']['started'])
+ def test_dismiss_offline_preserved_idle_clears(self):
+  self.state['status']={'gameId':12,'started':'2026-11-09T20:00:00+00:00'};self.state['health']['game_playing']=True
+  self.c.step();self.c.dismiss_session(12,self.state['status']['started'])
+  self.state['health']['cabinet_reachable']=False;self.advance();self.c.step()
+  with self.c.db() as db:self.assertIsNotNone(self.c.read(db,'dismissed_session'))
+  self.state['health']={'cabinet_reachable':True,'game_playing':False};self.state['status']={'gameId':0,'started':None};self.advance();self.c.step()
+  with self.c.db() as db:self.assertIsNone(self.c.read(db,'dismissed_session'))
  def test_no_images_or_writes(self):
   self.c.step();self.assertEqual(set(self.calls),{'status','library'})
 

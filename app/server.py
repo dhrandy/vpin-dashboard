@@ -857,6 +857,16 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/auth/logout':
                 auth_store().logout(session)
                 return self._auth_reply('')
+            if path == '/api/status/dismiss':
+                if not COLLECTOR:
+                    raise AuthError('Collector not initialized.',503)
+                if set(body) != {'gameId','started'}:
+                    raise AuthError('Session identity required.')
+                try:
+                    result = COLLECTOR.dismiss_session(body['gameId'],body['started'])
+                except ValueError as error:
+                    raise AuthError(str(error),409)
+                return self._send(200,result)
             if path == '/api/collection':
                 if set(body)!={'enabled','interval'}:
                     raise AuthError('Enabled and interval are required.')

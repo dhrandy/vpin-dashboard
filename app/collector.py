@@ -120,6 +120,11 @@ class Collector:
             with self.db() as db:
                 self.put(db, 'last_checked', now)
                 self._record(db, 'status', status, now)
+                dismissed = self.read(db, 'dismissed_session')
+                key = self.session_key(status)
+                # Only a known idle state or a positively different session clears dismissal.
+                if reachable and known and (state['gameId'] <= 0 or (key and dismissed != key)):
+                    self.put(db, 'dismissed_session', None)
                 self.put(db, 'pending', 'Cabinet busy: bulk pull deferred' if busy else 'Cabinet unavailable: bulk pull deferred' if not reachable or not known else 'Idle')
                 self._prune(db, now)
             if not reachable or not known:
@@ -174,9 +179,25 @@ class Collector:
     def status(self):
         with self.db() as db:
             latest = self.read(db, 'latest_status')
+            dismissed = self.read(db, 'dismissed_session')
         if not latest or self.clock() - latest['at'] > 125:
-            return {'ok': True, 'health': {}, 'status': {'gameId': 0, 'started': None}, 'stale': True}
-        return {**latest['data'], 'checkedAt': latest['at']}
+            return {'ok': True, 'health': {}, 'status': {'gameId': 0, 'started': None}, 'stale': True, 'checkedAt': latest['at'] if latest else None}
+        return {**latest['data'], 'checkedAt': latest['at'], 'dismissed': bool(dismissed and dismissed == self.session_key(latest['data']))}
+
+    @staticmethod
+    def session_key(data):
+        state = data.get('status', {})
+        game_id, started = state.get('gameId'), state.get('started')
+        return [game_id, started] if type(game_id) is int and game_id > 0 and isinstance(started, str) and started else None
+
+    def dismiss_session(self, game_id, started):
+        with self.db() as db:
+            latest = self.read(db, 'latest_status')
+            key = [game_id, started]
+            if type(game_id) is not int or type(started) is not str or not latest or self.clock() - latest['at'] > 125 or self.session_key(latest['data']) != key:
+                raise ValueError('This session changed or cannot be identified. Refresh and try again.')
+            self.put(db, 'dismissed_session', key)
+        return self.status()
 
     def start(self):
         if self.thread:

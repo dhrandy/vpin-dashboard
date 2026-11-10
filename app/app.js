@@ -42,7 +42,8 @@ function elapsedLabel(started,now=Date.now()){
   const total=Math.floor((now-start)/1000),hours=Math.floor(total/3600),minutes=Math.floor(total/60)%60,seconds=total%60;
   return 'Elapsed '+(hours?hours+':'+String(minutes).padStart(2,'0'):String(minutes))+':'+String(seconds).padStart(2,'0');
 }
-function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started);}
+function statusAgeLabel(checkedAt,now=Date.now()) {if(!Number.isFinite(checkedAt)||checkedAt<=0)return 'Check time unavailable';const age=Math.max(0,Math.floor((now-checkedAt*1000)/1000));return age<60?'Checked '+age+'s ago':'Checked '+Math.floor(age/60)+'m ago';}
+function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started);const age=$('now-playing').querySelector('.status-age');if(age)age.textContent=statusAgeLabel(STATUS.checkedAt);}
 setInterval(updateElapsed,1000);
 async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favourites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
 async function toggleFavourite(gameId){
@@ -205,11 +206,16 @@ function renderStatus() {
   if (STATUS.gamePlaying) {
     np.style.display="flex";np.innerHTML="";
     const t=DATA.tables.find(t=>t.gameId===STATUS.gameId);
-    const text=document.createElement(t?'button':'span');
-    text.textContent="Now playing"+(t?": "+t.name+" ›":STATUS.playingText?": "+STATUS.playingText:" on the cabinet");
-    if(t){text.type='button';text.setAttribute('aria-label','Go to '+t.name+' in Library');text.addEventListener('click',()=>{switchTab('library');$('search').value='';selectFilter('all');const card=$('grid').querySelector('[data-open="'+t.gameId+'"]');if(card){card.scrollIntoView({block:'center',behavior:'smooth'});card.focus({preventScroll:true});}});}
-    if(SHOW_TIMER){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started);text.append(timer);}
-    np.append(text);
+    const text=document.createElement(t && !STATUS.dismissed?'button':'span');
+    text.textContent=STATUS.dismissed?"Session dismissed":"Studio reports"+(t?": "+t.name+" ›":STATUS.playingText?": "+STATUS.playingText:" a table active");
+    if(t && !STATUS.dismissed){text.type='button';text.setAttribute('aria-label','Go to '+t.name+' in Library');text.addEventListener('click',()=>{switchTab('library');$('search').value='';selectFilter('all');const card=$('grid').querySelector('[data-open="'+t.gameId+'"]');if(card){card.scrollIntoView({block:'center',behavior:'smooth'});card.focus({preventScroll:true});}});}
+    if(SHOW_TIMER && !STATUS.dismissed){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started);text.append(timer);}
+    const main=document.createElement('div');main.className='reported-session';main.append(text);np.append(main);
+    const info=document.createElement('div');info.className='reported-info';
+    const age=document.createElement('span');age.className='status-age';age.textContent=statusAgeLabel(STATUS.checkedAt);info.append(age);
+    const caveat=document.createElement('span');caveat.textContent=STATUS.dismissed?'Hidden on this dashboard only. Studio still reports busy; Play stays blocked.':'Studio status, not a process check. It may remain active after a crash.';info.append(caveat);
+    if(CURRENT_USER?.role==='admin' && !STATUS.dismissed){const dismiss=document.createElement('button');dismiss.type='button';dismiss.className='dismiss-session';dismiss.textContent='Dismiss this session';dismiss.disabled=!STATUS.started;dismiss.title=STATUS.started?'Hide this session on this dashboard without changing the cabinet or enabling Play.':'Studio must report a session start before it can be dismissed safely.';dismiss.addEventListener('click',async()=>{if(!confirm('Hide this reported session on this dashboard? This does not stop a table, reset Studio, or enable Play.'))return;dismiss.disabled=true;try{await apiPost('/api/status/dismiss',{gameId:STATUS.gameId,started:STATUS.started});await loadStatus();}catch(error){showBanner(error.message);dismiss.disabled=false;}});info.append(dismiss);}
+    np.append(info);
   }
   else np.style.display = "none";
 }
@@ -413,6 +419,8 @@ async function loadStatus() {
       gamePlaying: !!playing,
       gameId:Number(res?.status?.gameId)||null,
       started:res?.status?.started||null,
+      checkedAt:res?.checkedAt||null,
+      dismissed:res?.dismissed===true,
       playingText: DATA.tables.find(t=>t.gameId===Number(res?.status?.gameId))?.name || null,
     };
   } catch { STATUS = { state: "offline", gamePlaying: false, playingText: null }; }
