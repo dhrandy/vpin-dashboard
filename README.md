@@ -14,7 +14,17 @@ A self-hosted pinball library and stats dashboard for a cabinet running VPin Stu
 
 ## Why two parts?
 
-The dashboard provides the library, stats, accounts and browser interface. [vpin-bridge](https://github.com/dhrandy/vpin-bridge) provides a small API authenticated by an API key, so the dashboard and authorized agents or scripts can read the cabinet's table information without running on the cabinet or accessing its filesystem directly. The bridge runs on a Docker host on your private network and talks to VPin Studio Server on the cabinet. VPin Studio handles cabinet-local files and media. Keeping the API separate lets agents use it without depending on the dashboard interface.
+The dashboard never talks to the cabinet directly. All cabinet traffic goes through [vpin-bridge](https://github.com/dhrandy/vpin-bridge), a small API that runs in Docker on your own server, holds the cabinet address and the API key, and forwards requests to VPin Studio Server on the cabinet.
+
+This split exists on purpose:
+
+- **The cabinet stays private.** It is a Windows PC on your home network. Only the bridge knows its address, and VPin Studio's port never leaves the local network.
+- **The key stays in one place.** The API key lives in the bridge container's environment. Browsers only ever see dashboard accounts, so a sign-in can be exposed through your reverse proxy without exposing the cabinet key.
+- **The bridge enforces the rules.** It validates every request, rejects wrong keys with a lockout, and refuses unsafe calls before anything reaches the cabinet.
+- **The dashboard can be shared safely.** Admin and viewer accounts, personal preferences and hidden tables are all dashboard-side; the cabinet key is never in browser code.
+- **Each part updates on its own.** The bridge pulls its one file from its repo on container start; the dashboard is a separate stack. Update either without touching the other.
+
+If you put a reverse proxy in front of the bridge, set `BRIDGE_TRUSTED_PROXIES` on the bridge to your proxy's addresses so client lockouts count real callers instead of the proxy itself.
 
 ## Features
 

@@ -59,6 +59,8 @@ class AuthStore:
                 db.execute('ALTER TABLE preferences ADD COLUMN back_to_top INTEGER NOT NULL DEFAULT 1')
             if 'show_hidden' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_hidden INTEGER NOT NULL DEFAULT 0')
+            if 'show_pick' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_pick INTEGER NOT NULL DEFAULT 1')
         os.chmod(self.path, 0o600)
         if self.needs_setup() and not os.path.exists(self.setup_path):
             fd = os.open(self.setup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -223,12 +225,12 @@ class AuthStore:
 
     def preferences(self,user_id):
         with self.db() as db:
-            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden FROM preferences WHERE user_id=?',(user_id,)).fetchone()
-            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True,'showHidden':bool(row[5]) if row else False}
+            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick FROM preferences WHERE user_id=?',(user_id,)).fetchone()
+            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True,'showHidden':bool(row[5]) if row else False,'showPick':bool(row[6]) if row else True}
 
-    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True,show_hidden=False):
+    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True,show_hidden=False,show_pick=True):
         with self.lock,self.db() as db:
-            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top,show_hidden=excluded.show_hidden',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top),int(show_hidden)))
+            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top,show_hidden=excluded.show_hidden,show_pick=excluded.show_pick',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top),int(show_hidden),int(show_pick)))
         return self.preferences(user_id)
 
     def favourites(self, user_id):
@@ -258,7 +260,7 @@ class AuthStore:
                 db.execute('DELETE FROM hidden WHERE user_id=? AND game_id=?',(user_id,game_id))
         return self.hidden(user_id)
 
-    STATS_SECTIONS = ('most', 'least', 'recent', 'tops', 'players', 'makers', 'decades', 'toplist')
+    STATS_SECTIONS = ('most', 'least', 'recent', 'tops', 'players', 'makers', 'decades', 'toplist', 'weekly')
 
     def stats_sections(self, user_id):
         with self.db() as db:

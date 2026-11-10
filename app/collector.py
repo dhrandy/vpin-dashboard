@@ -166,6 +166,58 @@ class Collector:
         finally:
             self.pull_lock.release()
 
+    def plays_by_week(self, weeks=8):
+        """Plays recorded per week, from saved library snapshots.
+
+        Each history row is a changed library snapshot; the delta of total
+        recorded plays between consecutive snapshots is attributed to the
+        week of the later snapshot. Negative deltas (table removed) count as
+        zero. History starts with this dashboard's first sync and is kept
+        for the retention window, so early weeks fill in over time.
+        """
+        with self.db() as db:
+            rows = db.execute("SELECT at,payload FROM history WHERE kind='library' ORDER BY at").fetchall()
+            latest = self.read(db, 'latest_library')
+        points = []
+        for at, packed in rows:
+            try:
+                data = json.loads(zlib.decompress(packed))
+            except Exception:
+                continue
+            tables = data.get('tables') if isinstance(data, dict) else None
+            if not isinstance(tables, list):
+                continue
+            total = sum(t.get('playCount') for t in tables if isinstance(t, dict) and type(t.get('playCount')) is int)
+            points.append((float(at), total))
+        if isinstance(latest, dict) and isinstance(latest.get('data'), dict):
+            tables = latest['data'].get('tables')
+            if isinstance(tables, list):
+                total = sum(t.get('playCount') for t in tables if isinstance(t, dict) and type(t.get('playCount')) is int)
+                at = float(latest.get('at') or 0)
+                if not points or points[-1][0] != at:
+                    points.append((at, total))
+        # Key weeks by the Monday date, not epoch arithmetic: DST transitions
+        # make fixed 7-day offsets drift an hour off the bucket boundaries.
+        def week_key(ts):
+            lt = time.localtime(ts)
+            monday = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
+            return time.strftime('%Y-%m-%d', time.localtime(monday))
+        def monday_of(ts):
+            lt = time.localtime(ts)
+            return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
+        now = self.clock()
+        first = monday_of(now) - (weeks - 1) * 604800
+        keys = [week_key(first + i * 604800) for i in range(weeks)]
+        buckets = {k: 0 for k in keys}
+        for (a0, t0), (a1, t1) in zip(points, points[1:]):
+            delta = max(0, t1 - t0)
+            if not delta:
+                continue
+            k = week_key(a1)
+            if k in buckets:
+                buckets[k] += delta
+        return [{'week': time.strftime('%b %-d', time.strptime(k, '%Y-%m-%d')), 'plays': buckets[k]} for k in keys]
+
     def library(self, refresh=False):
         if refresh:
             self.step(manual=True)

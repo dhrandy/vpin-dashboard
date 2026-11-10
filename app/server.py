@@ -878,7 +878,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/library":
                 if COLLECTOR:
                     refresh=parse_qs(urlparse(self.path).query).get('refresh')==['1']
-                    return self._send(200,COLLECTOR.library(refresh=refresh))
+                    lib=COLLECTOR.library(refresh=refresh)
+                    if isinstance(lib,dict):
+                        lib=dict(lib)
+                        try: lib['playsByWeek']=COLLECTOR.plays_by_week()
+                        except Exception: lib['playsByWeek']=[]
+                    return self._send(200,lib)
                 return self._send(200, safe_value(library_payload()))
             if path == "/api/status":
                 return self._send(200,COLLECTOR.status() if COLLECTOR else current_status())
@@ -1013,11 +1018,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise AuthError(str(error))
                 return self._send(200,{'ok':True,**result})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden','showPick'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'],current['showPick'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:

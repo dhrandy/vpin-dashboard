@@ -22,9 +22,10 @@ let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let HIDDEN=new Set();
 let STATS_HIDDEN=new Set();
-const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"],["toplist","Top tables to play"]];
+const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"],["toplist","Top tables to play"],["weekly","Plays per week"]];
 let HIDDEN_BUSY=false;
 let SHOW_HIDDEN=false;
+let SHOW_PICK=true;
 let SHOW_TIMER=true;
 let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
@@ -43,7 +44,7 @@ function heartButton(t){
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;SHOW_HIDDEN=data.showHidden===true;$('show-hidden-setting').checked=SHOW_HIDDEN;renderStatus();renderLibrary();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;SHOW_HIDDEN=data.showHidden===true;$('show-hidden-setting').checked=SHOW_HIDDEN;SHOW_PICK=data.showPick!==false;$('pick-setting').checked=SHOW_PICK;$('pick-btn').hidden=!SHOW_PICK;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
@@ -52,6 +53,7 @@ $('playtime-setting').addEventListener('change',async e=>{const checkbox=e.targe
 $('status-details-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{statusDetails:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('back-top-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{backToTop:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('show-hidden-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showHidden:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('pick-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPick:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -298,6 +300,34 @@ function dateSortValue(value) {
   return Number.isFinite(parsed)?parsed:0;
 }
 
+function pickTable(){
+  const pool = DATA.tables.filter((t) => !HIDDEN.has(t.gameId));
+  if (!pool.length) { showBanner("No tables to pick from."); return; }
+  const weights = pool.map((t) => 1 / (1 + (Number.isInteger(t.playCount) ? t.playCount : 0)));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  let choice = pool[pool.length - 1];
+  for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { choice = pool[i]; break; } }
+  showPick(choice);
+}
+function showPick(t){
+  const d = $("pick");
+  d.innerHTML = `
+    <button id="pick-close-top" class="modal-close" type="button" aria-label="Close picked table" title="Close picked table"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    ${DATA.thumbsEnabled ? `<img class="pick-art" src="/api/thumb/${t.gameId}?v=2&r=${encodeURIComponent(t.mediaRevision || "")}" alt="">` : ""}
+    <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
+    <p class="muted">${esc(tableMeta(t))}</p>
+    <div class="pick-actions">
+      ${canLaunch(t) ? `<button class="accountbtn" id="pick-play" type="button">Play on the cabinet</button>` : ""}
+      <button class="accountbtn" id="pick-again" type="button">Try another</button>
+    </div>`;
+  d.showModal();
+  d.querySelector(".pick-art")?.addEventListener("error", (e) => e.target.remove(), { once: true });
+  $("pick-close-top").addEventListener("click", () => d.close());
+  $("pick-again").addEventListener("click", () => { d.close(); pickTable(); });
+  $("pick-play")?.addEventListener("click", () => { d.close(); play(t.gameId); });
+}
+$("pick-btn").addEventListener("click", pickTable);
+
 function renderLibrary() {
   const M = buildMatcher();
   renderSidebar(M);
@@ -399,12 +429,17 @@ function renderStats() {
     const t = statTables.find((x) => x.gameId === e.gameId);
     const plays = t && Number.isInteger(t.playCount) ? t.playCount : 0;
     if (!plays) topUnplayed++;
-    const right = plays > 0 ? `<span class="rank-value">${fmt(plays)}<small>plays</small></span>` : '<span class="chip-new">Not played yet</span>';
+    const playBtn = t && canLaunch(t) ? `<button type="button" class="play-row" data-play="${t.gameId}" aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : "";
+    const right = `<span class="rank-side">${playBtn}${plays > 0 ? `<span class="rank-value">${fmt(plays)}<small>plays</small></span>` : '<span class="chip-new">Not played yet</span>'}</span>`;
     const meta = [e.maker, e.year].filter(Boolean).join(" \u00b7 ");
     return `<div class="rank-row"><span class="toplist-badge">#${e.rank}</span><div><button class="stats-table tname2" data-open="${e.gameId}">${esc(e.name)}${e.edition ? " " + esc(e.edition) : ""}</button><div class="toplist-meta">${esc(meta)}</div></div>${right}</div>`;
   }).join("") : '<p class="muted">None of the curated tables are in your library yet.</p>';
   $("toplist-count").textContent = topEntries.length ? `${topEntries.length} of ${topTotal} curated tables are in your library.${topUnplayed ? ` ${topUnplayed} of them have no recorded plays.` : ""}` : "";
+  const weekly = Array.isArray(DATA.playsByWeek) ? DATA.playsByWeek : [];
+  const weekMax = Math.max(1, ...weekly.map((w) => w.plays || 0));
+  $("weekly").innerHTML = weekly.length ? weekly.map((w) => `<div class="weekly-col"><span class="weekly-num">${fmt(w.plays || 0)}</span><div class="weekly-bar" style="height:${Math.round(((w.plays || 0) / weekMax) * 84)}px"></div><span class="weekly-label">${esc(w.week)}</span></div>`).join("") : '<p class="muted">No weekly plays recorded yet.</p>';
   $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
+  $("view-stats").querySelectorAll("[data-play]").forEach((b) => b.addEventListener("click", () => play(Number(b.dataset.play))));
   const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
   const max = tops[0]?.best || 1;

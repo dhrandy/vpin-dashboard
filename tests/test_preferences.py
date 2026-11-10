@@ -15,9 +15,16 @@ class PreferenceTests(unittest.TestCase):
                 db.execute('INSERT INTO favourites VALUES (1,42)')
                 db.execute('ALTER TABLE preferences DROP COLUMN back_to_top')
             store=AuthStore(folder)
-            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True,showHidden=False))
+            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True,showHidden=False,showPick=True))
             store.set_preferences(1,True,False,False,True,False)
             self.assertFalse(AuthStore(folder).preferences(1)['backToTop'])
             self.assertTrue(store.preferences(2)['backToTop'])
             self.assertEqual(store.favourites(1),[42])
+    def test_show_pick_roundtrip_and_default(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=AuthStore(folder)
+            self.assertTrue(store.preferences(1)['showPick'])
+            prefs=store.set_preferences(1,False,True,True,False,True,False,False)
+            self.assertFalse(prefs['showPick'])
+            self.assertFalse(AuthStore(folder).preferences(1)['showPick'])
 if __name__=='__main__':unittest.main()

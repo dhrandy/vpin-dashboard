@@ -112,4 +112,22 @@ class Tests(unittest.TestCase):
  def test_no_images_or_writes(self):
   self.c.step();self.assertEqual(set(self.calls),{'status','library'})
 
+ def test_plays_by_week(self):
+  # Snapshot 1: 10 total plays. A week later snapshot 2: 25 total -> 15 plays that week.
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':10}],'scores':[],'playlists':[]}
+  self.c.step()
+  self.advance(7*86400+3600)
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':25}],'scores':[],'playlists':[]}
+  self.c.step(manual=True)
+  weeks=self.c.plays_by_week()
+  self.assertEqual(len(weeks),8)
+  self.assertEqual(weeks[-1]['plays'],15)
+  self.assertEqual(sum(w['plays'] for w in weeks),15)
+ def test_plays_by_week_empty_and_clamped(self):
+  self.assertEqual([w['plays'] for w in self.c.plays_by_week()],[0]*8)
+  self.c.step()
+  self.advance(3600)
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':0}],'scores':[],'playlists':[]}
+  self.c.step(manual=True)  # playCount dropped (table removed): no negative plays
+  self.assertEqual(sum(w['plays'] for w in self.c.plays_by_week()),0)
 if __name__=='__main__':unittest.main(verbosity=2)

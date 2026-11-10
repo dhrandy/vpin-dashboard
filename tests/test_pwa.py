@@ -28,5 +28,7 @@ class PWATests(unittest.TestCase):
         self.assertIn('rel="manifest" href="/manifest.webmanifest"',html)
         self.assertIn('apple-touch-icon',html)
         self.assertIn('src="/pwa.js"',html)
-        self.assertIn('id="install-app"',html)
+        # The Settings install panel was removed; browser Add to Home Screen
+        # still works off the manifest and network-only worker.
+        self.assertNotIn('id="install-app"',html)
 if __name__=='__main__':unittest.main()
