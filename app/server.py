@@ -92,6 +92,17 @@ def read_instructions():
     except (OSError,UnicodeError):
         return {"ok":False,"error":"Instructions could not be read. Check the file format and permissions."}
 
+def public_started(value):
+    if not isinstance(value,str) or len(value)>64:
+        return None
+    try:
+        parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
+        if parsed.tzinfo is None or parsed.timestamp()>time.time()+5:
+            return None
+        return parsed.isoformat()
+    except (ValueError,OverflowError,OSError):
+        return None
+
 def public_text(value):
     text = str(value)[:2000]
     if (API_KEY and API_KEY in text) or re.search(r"https?://|www\.|[A-Za-z]:[\\/]|\\\\[\w.-]+\\|(?:^|\s)/(?:[\w.-]+/)+|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[\w-]+\.(?:[a-z]{2,63})\b|[\w.+-]+@[\w.-]+|(?:api[_ -]?key|password|secret|bearer)\s*[:=]", text, re.I):
@@ -711,6 +722,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/app.js':
             return self._send_text_file('app.js','application/javascript')
+        if path == '/api/preferences':
+            return self._send(200,{'ok':True,**auth_store().preferences(self._session()['id'])})
+        if path == '/api/favourites':
+            return self._send(200,{'ok':True,'gameIds':auth_store().favourites(self._session()['id'])})
         if path == '/api/instructions':
             return self._send(200,read_instructions())
         if path == '/api/settings':
@@ -738,7 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                     status = bridge("GET", "/api/status")
                 except Exception:
                     status = {}
-                return self._send(200, {"ok": True, "health": {k:bool(health.get(k)) for k in ("cabinet_reachable","game_playing")}, "status": {"gameId":int(status.get("gameId") or 0)}})
+                return self._send(200, {"ok": True, "health": {k:bool(health.get(k)) for k in ("cabinet_reachable","game_playing")}, "status": {"gameId":int(status.get("gameId") or 0),"started":public_started(status.get("started")) if int(status.get("gameId") or 0)>0 else None}})
             parts = [p for p in path.split("/") if p]
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "thumb":
                 try:
@@ -797,7 +812,7 @@ class Handler(BaseHTTPRequestHandler):
                 store = auth_store()
                 cookie = store.setup(body,self.client_address[0]) if path.endswith('/setup') else store.login(body.get('username'),body.get('password'),self.client_address[0])
                 return self._auth_reply(cookie)
-            session = self._require(admin=path != '/api/auth/logout')
+            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/preferences'))
             if not session:
                 return
             if not self._csrf(session) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
@@ -806,6 +821,23 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/auth/logout':
                 auth_store().logout(session)
                 return self._auth_reply('')
+            if path == '/api/preferences':
+                if not set(body) or not set(body)<={'colorblind','showTimer'} or any(type(v) is not bool for v in body.values()):
+                    raise AuthError('Valid display preferences required.')
+                store=auth_store();store.personal_write_throttle(session['id'])
+                current=store.preferences(session['id']);current.update(body)
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'])})
+            if path == '/api/favourites':
+                game_id=body.get('gameId');saved=body.get('saved')
+                if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:
+                    raise AuthError('Valid table ID and saved state required.')
+                if set(body)!={'gameId','saved'}:
+                    raise AuthError('Only table ID and saved state are accepted.')
+                store=auth_store();store.personal_write_throttle(session['id'])
+                # Removing a stale favourite must still work after a table is uninstalled.
+                if saved and not any(t['gameId']==game_id for t in library_payload()['tables']):
+                    raise AuthError('Table is not in the cabinet library.',404)
+                return self._send(200,{'ok':True,'gameIds':store.set_favourite(session['id'],game_id,saved)})
             if path == '/api/settings':
                 name = body.get('name')
                 if public_text(name) != name:

@@ -13,12 +13,41 @@ window.fetch = async (url, options={}) => {
 let DATA = { tables: [], scores: [], playlists: [], thumbsEnabled: false };
 let STATUS = { state: "unknown", gamePlaying: false, playingText: null };
 let FILTER = "all";
+let FAVOURITES=new Set();
+let FAVOURITE_BUSY=false;
+let SHOW_TIMER=true;
 let BROWSE = "maker";
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US"));
 const playCountLabel = (t) => Number.isInteger(t.playCount) && t.playCount >= 0 ? `${fmt(t.playCount)} play${t.playCount === 1 ? "" : "s"}` : "Plays unknown";
 const tableMeta = (t) => [...[t.maker, t.year].filter(Boolean), playCountLabel(t)].join(" · ");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function heartButton(t){
+  const saved=FAVOURITES.has(t.gameId),label=(saved?'Remove ':'Add ')+t.name+(saved?' from':' to')+' your favourites';
+  return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
+}
+function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;renderStatus();}
+async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
+$('tab-settings').addEventListener('click',()=>switchTab('settings'));
+$('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('timer-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showTimer:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+function elapsedLabel(started,now=Date.now()){
+  if(typeof started!=='string')return 'Time unavailable';
+  const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
+  const total=Math.floor((now-start)/1000),hours=Math.floor(total/3600),minutes=Math.floor(total/60)%60,seconds=total%60;
+  return 'Elapsed '+(hours?hours+':'+String(minutes).padStart(2,'0'):String(minutes))+':'+String(seconds).padStart(2,'0');
+}
+function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started);}
+setInterval(updateElapsed,1000);
+async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favourites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
+async function toggleFavourite(gameId){
+  if(FAVOURITE_BUSY)return;FAVOURITE_BUSY=true;document.querySelectorAll('[data-heart]').forEach(b=>b.disabled=true);
+  try{const result=await apiPost('/api/favourites',{gameId,saved:!FAVOURITES.has(gameId)});FAVOURITES=new Set(result.gameIds);}
+  catch(e){showBanner(e.message);}
+  finally{FAVOURITE_BUSY=false;renderLibrary();const button=$('detail').querySelector('[data-heart]');if(button){const t=DATA.tables.find(t=>t.gameId===Number(button.dataset.heart));if(t){button.outerHTML=heartButton(t);bindHearts($('detail'));}}}
+}
 
 function bestByTable() {
   const map = new Map();
@@ -74,7 +103,8 @@ function buildMatcher() {
     if (key === "all") return true;
     if (key === "with-scores") return (best.get(t.gameId)?.count ?? 0) > 0;
     if (key === "no-scores") return (best.get(t.gameId)?.count ?? 0) === 0;
-    if (key === "cat:favourites") return (member.get(t.gameId) || []).some((n) => /favourites|favorites/i.test(n));
+    if (key === "cat:favourites") return FAVOURITES.has(t.gameId);
+    if (key === "cat:cabinet-favourites") return (member.get(t.gameId) || []).some((n) => /favourites|favorites/i.test(n));
     if (key === "cat:top-rated") return topRated.has(t.gameId);
     if (key === "cat:recently-played") return withinRecent(t.lastPlayedAt);
     if (key === "cat:recently-added") return withinRecent(t.addedAt);
@@ -95,6 +125,7 @@ function headingFor(key) {
   if (key === "with-scores") return "Tables with scores";
   if (key === "no-scores") return "No scores yet";
   if (key === "cat:favourites") return "Favourites";
+  if (key === "cat:cabinet-favourites") return "Cabinet favourites";
   if (key === "cat:top-rated") return "Top rated";
   if (key === "cat:recently-played") return "Recently played";
   if (key === "cat:recently-added") return "Recently added";
@@ -114,6 +145,7 @@ function renderSidebar(M) {
   let html = `<p class="side-title">Library</p>`;
   html += btn("all", "All tables", M.countFor("all"));
   html += btn("cat:favourites", "Favourites", M.countFor("cat:favourites"));
+  html += btn("cat:cabinet-favourites", "Cabinet favourites", M.countFor("cat:cabinet-favourites"));
   html += btn("cat:top-rated", "Top rated", M.countFor("cat:top-rated"));
   html += btn("cat:recently-played", "Recently played", M.countFor("cat:recently-played"));
   html += btn("cat:recently-added", "Recently added", M.countFor("cat:recently-added"));
@@ -149,7 +181,7 @@ function renderSidebar(M) {
   const sel = $("browse-by");
   if (sel) sel.addEventListener("change", () => { BROWSE = sel.value; renderLibrary(); });
 
-  const chips = [["all", "All"], ["cat:favourites", "Favourites"], ["cat:top-rated", "Top rated"], ["cat:recently-played", "Recently played"], ["cat:recently-added", "Recently added"], ["cat:needs-attention", "Needs attention"], ["with-scores", "With scores"], ["no-scores", "No scores"]];
+  const chips = [["all", "All"], ["cat:favourites", "Favourites"], ["cat:cabinet-favourites", "Cabinet favourites"], ["cat:top-rated", "Top rated"], ["cat:recently-played", "Recently played"], ["cat:recently-added", "Recently added"], ["cat:needs-attention", "Needs attention"], ["with-scores", "With scores"], ["no-scores", "No scores"]];
   $("chiprow").innerHTML = chips.map(([k, l]) => `<button type="button" class="chip" data-filter="${k}" aria-pressed="${FILTER === k}">${l}</button>`).join("");
   $("chiprow").querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { selectFilter(b.dataset.filter); }));
 
@@ -164,9 +196,18 @@ function renderStatus() {
   const dot = $("status-dot"), label = $("status-label");
   dot.style.background = STATUS.state === "online" ? "var(--green)" : STATUS.state === "offline" ? "var(--red)" : "var(--dim)";
   label.textContent = STATUS.state === "online" ? "Cabinet online" : STATUS.state === "offline" ? "Cabinet offline" : "Cabinet status unknown";
+  dot.style.borderRadius=STATUS.state==="online"?"50%":"1px";$("mobile-status").style.borderRadius=dot.style.borderRadius;
   $("mobile-status").style.background=dot.style.background;$("mobile-status").setAttribute("aria-label",label.textContent);$("mobile-status").title=label.textContent;
   const np = $("now-playing");
-  if (STATUS.gamePlaying) { np.style.display = "block"; np.textContent = "Now playing" + (STATUS.playingText ? ": " + STATUS.playingText : " on the cabinet"); }
+  if (STATUS.gamePlaying) {
+    np.style.display="flex";np.innerHTML="";
+    const t=DATA.tables.find(t=>t.gameId===STATUS.gameId);
+    const text=document.createElement(t?'button':'span');
+    text.textContent="Now playing"+(t?": "+t.name+" ›":STATUS.playingText?": "+STATUS.playingText:" on the cabinet");
+    if(t){text.type='button';text.setAttribute('aria-label','Go to '+t.name+' in Library');text.addEventListener('click',()=>{switchTab('library');$('search').value='';selectFilter('all');const card=$('grid').querySelector('[data-open="'+t.gameId+'"]');if(card){card.scrollIntoView({block:'center',behavior:'smooth'});card.focus({preventScroll:true});}});}
+    if(SHOW_TIMER){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started);text.append(timer);}
+    np.append(text);
+  }
   else np.style.display = "none";
 }
 
@@ -217,6 +258,7 @@ function renderLibrary() {
         ${t.needsAttention ? `<span class="flag" title="This table is missing something, like a backglass">Needs attention</span>` : ""}
 
       </button>
+      ${heartButton(t)}
       <div class="cardbody">
         <p class="tname">${esc(t.name)}</p>
         <p class="meta" title="${esc(tableMeta(t))}" aria-label="${esc(tableMeta(t))}">${t.maker ? `<span class="meta-maker">${esc(t.maker)}</span><span class="meta-fixed">·</span>` : ""}${t.year ? `<span class="meta-fixed">${esc(t.year)} ·</span>` : ""}<span class="meta-fixed">${esc(playCountLabel(t))}</span></p>
@@ -226,6 +268,7 @@ function renderLibrary() {
         <span class="top">${t.bestScore !== null ? `Top${t.bestInitials ? " · " + esc(t.bestInitials) : ""} · <b>${fmt(t.bestScore)}</b>` : "No scores yet"}</span>
       </div>
     </article>`).join("");
+  bindHearts($("grid"));
   document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   document.querySelectorAll(".artimg").forEach(i=>i.addEventListener("error",()=>i.remove(),{once:true}));
   document.querySelectorAll("[data-play]").forEach((b) => b.addEventListener("click", () => play(Number(b.dataset.play))));
@@ -290,7 +333,7 @@ async function openDetail(gameId) {
   d.innerHTML = `
     ${DATA.thumbsEnabled ? `<img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}">` : ""}
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
-    <p class="muted">${esc(tableMeta(t))}</p>
+    <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
     ${entry ? entry.scores.map((s) => `<div class="row"><span>#${s.rank} ${esc(s.initials || "—")}</span><strong style="color:var(--accent)">${fmt(s.score)}</strong></div>`).join("") : '<p class="muted">No scores recorded on this table.</p>'}
@@ -300,7 +343,7 @@ async function openDetail(gameId) {
     <p class="muted launch-note" style="text-align:center">Launches through VPin Studio on the cabinet.</p>` : ""}
     <button id="detail-close" style="width:100%;margin-top:6px;padding:10px;background:var(--surface2);color:var(--text);border:0;border-radius:6px;cursor:pointer">Close</button>`;
   d.dataset.gameId = String(gameId);
-  d.showModal();
+  d.showModal();bindHearts(d);
   d.querySelector(".dimg")?.addEventListener("error",e=>e.target.remove(),{once:true});
   loadScoreHistory(gameId);
   $("detail-close").addEventListener("click", () => d.close());
@@ -362,6 +405,8 @@ async function loadStatus() {
     STATUS = {
       state: reachable === undefined ? "unknown" : reachable ? "online" : "offline",
       gamePlaying: !!playing,
+      gameId:Number(res?.status?.gameId)||null,
+      started:res?.status?.started||null,
       playingText: DATA.tables.find(t=>t.gameId===Number(res?.status?.gameId))?.name || null,
     };
   } catch { STATUS = { state: "offline", gamePlaying: false, playingText: null }; }
@@ -382,6 +427,7 @@ async function load(manual) {
     if (res && res.ok) DATA = res;
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
+  try{await loadFavourites();}catch(e){showBanner(e.message);}
   renderLibrary(); renderStats();
   await loadStatus();
   await loadInstructions();
@@ -426,6 +472,7 @@ $("tab-stats").addEventListener("click", () => switchTab("stats"));
 function switchTab(which) {
   if(which==="instructions" && $("tab-instructions").hidden)return;
   setMenu(false);
+  $("view-settings").hidden=which!=="settings";$("tab-settings").setAttribute("aria-pressed",String(which==="settings"));
   $("view-instructions").hidden=which!=="instructions";
   $("tab-instructions").setAttribute("aria-pressed",String(which==="instructions"));
   $("view-library").style.display = which === "library" ? "block" : "none";
@@ -530,5 +577,5 @@ $('branding-form').addEventListener('submit',async e=>{
   const state=await fetch('/api/auth/status').then(r=>r.json());if(!state.user){location.replace('/login');return;}
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
   $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
-  await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>load(false),30000);
+  await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>load(false),30000);
 })();

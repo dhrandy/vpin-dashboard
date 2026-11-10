@@ -12,7 +12,10 @@ A self-hosted pinball library and stats dashboard for a cabinet running VPin Stu
 - Sync refreshes the table list and incrementally caches new, missing, changed or previously failed images. Existing cache hits are skipped. Changed-image detection uses the modification revision supplied by Studio.
 - Full re-sync in Admin settings asks for confirmation before re-fetching all images. Existing previews remain available until replacements succeed. Image jobs pause while cabinet status is offline, unknown or busy.
 - Editable dashboard name/logo, plus a general cabinet Instructions page loaded from a local Markdown file.
-- Phone hamburger menu, tablet layouts and desktop sidebar.
+- Hearts on cards and details save Favourites per signed-in user, including viewers. Cabinet favourites stay separate. Personal lists never change cabinet playlists.
+- Per-user Settings stores Colorblind-friendly colors and the elapsed-time display on the server, across devices. Colorblind-friendly uses blue/orange with shape and text cues; default hearts are red.
+- The centered Now Playing banner links to the current table card and shows elapsed time from VPin Studio's reported session start, including pauses. Missing/invalid start time shows "Time unavailable". This is not ball-in-play time. The display can be hidden in Settings.
+- Phone/tablet hamburger menu and desktop sidebar.
 
 The existing "Top rated" category means the ten highest numeric table scores, not user ratings. Scores from different games are not comparable ratings.
 
@@ -41,6 +44,8 @@ An existing outer authentication gate can remain in place. It does not replace b
 2. Read the one-time setup token from `/data/auth/admin-setup-token` inside the container, using your private container console or the mounted data volume. Do not post the token publicly.
 3. Enter it on the setup screen and choose an admin username and a unique password of at least 12 characters. No default account or password is supplied.
 4. Successful setup deletes the token. Add viewer or admin accounts under Admin.
+
+The next startup automatically creates per-user favourites/preferences tables in the existing database and adds any missing display-preference columns. No new environment variables or compose changes are needed. Back up the data volume before updating.
 
 User and session data is stored in `/data/auth/users.sqlite3`. Changing a user's password, role or active status revokes that user's existing sessions. Sessions have a 12-hour absolute expiry. Keep backups of the data volume private; do not commit it to GitHub. Losing all admin credentials requires an operator recovery process; there is no email password reset.
 

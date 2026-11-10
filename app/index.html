@@ -11,6 +11,7 @@
     --dim:#8fa3bd; --border:#1f2f47; --accent:#f5b81d; --accent-ink:#1a1405;
     --cyan:#22d3ee; --green:#34d399; --red:#f87171;
   }
+  :root[data-colorblind="true"]{--accent:#70bcff;--accent-ink:#071a29;--cyan:var(--accent);--green:var(--accent);--red:#ffb463}
   *{box-sizing:border-box}
   html{scrollbar-width:thin;scrollbar-color:#31496e var(--bg)}
   ::-webkit-scrollbar{width:10px;height:10px}
@@ -21,19 +22,20 @@
   ::-webkit-scrollbar-corner{background:transparent}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
   header{position:sticky;top:0;background:rgba(11,18,32,.96);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;z-index:5}
-  nav{display:flex;gap:4px}
+  nav{display:flex;gap:4px;margin-right:auto}
   nav button{background:transparent;border:0;color:var(--dim);font-weight:600;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:14px}
   nav button[aria-pressed="true"]{background:var(--surface2);color:var(--text)}
   .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
-  .syncbtn{margin-left:auto;background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:7px 14px;font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+  .syncbtn{margin-left:0;background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:7px 14px;font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
   .syncbtn:disabled{opacity:.6;cursor:default}
   .syncbtn svg{flex:none}
   .syncing svg{animation:spin .9s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   main{max-width:1280px;margin:0 auto;padding:16px 14px 40px}
   .banner{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:8px 12px;font-size:14px;margin-bottom:12px;display:none}
-  .nowplaying{text-align:center;color:var(--cyan);font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:6px;border-top:1px solid var(--border);display:none}
+  .elapsed{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .nowplaying button{color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;background:transparent;border:0;cursor:pointer;padding:6px 12px;min-height:44px;max-width:100%;overflow-wrap:anywhere}.nowplaying button:hover{text-decoration:underline}.nowplaying button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.nowplaying{width:100%;justify-content:center;align-items:center;box-sizing:border-box;text-align:center;overflow-wrap:anywhere;color:var(--cyan);font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:6px;border-top:1px solid var(--border);display:none}
   .note{font-size:12px;color:var(--dim);margin:0 0 10px}
   .note.err{color:var(--red)}
   .layout{display:flex;gap:16px;align-items:flex-start}
@@ -69,13 +71,14 @@
   @media(min-width:1000px){.grid{grid-template-columns:repeat(4,1fr)}}
   @media(min-width:1200px){.grid{grid-template-columns:repeat(5,1fr)}}
   .card{border:1px solid var(--border);background:var(--surface);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+  .card{position:relative}.heart{display:grid;place-items:center;width:44px;height:44px;flex:none;padding:6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer}.card>.heart{position:absolute;right:8px;top:8px;z-index:1;box-shadow:0 2px 8px #0008}.heart.saved{color:var(--red);border-color:var(--red)}:root[data-colorblind="true"] .heart.saved{color:var(--accent);border-color:var(--accent)}.heart:disabled{opacity:.55;cursor:wait}.heart:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}.detail-meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.detail-meta p{min-width:0}
   .cardfeatures{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:auto;padding-top:6px;min-height:50px}
   .cardfeatures>.badges{margin:0;min-width:0}
   .cardfeatures>.play{width:44px;height:44px;padding:4px;display:grid;place-items:center;font-size:16px;margin-left:auto;border:4px solid transparent;background-clip:padding-box;border-radius:10px}
   .art{position:relative;aspect-ratio:9/16;padding:12px;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(160deg,var(--surface2),#0d1830 60%,#132341);cursor:pointer;border:0;text-align:left;color:var(--text);width:100%}
   .artimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
   .artname{font-size:22px;font-weight:700;line-height:1.1;text-transform:uppercase;letter-spacing:.02em}
-  .flag{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:var(--red);border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700}
+  .flag{position:absolute;bottom:8px;left:8px;max-width:calc(100% - 16px);background:rgba(0,0,0,.6);color:var(--red);border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700}
   .cardbody{padding:8px 10px 0;display:flex;flex:1;flex-direction:column}
   .tname{margin:0;font-size:14px;font-weight:700;line-height:1.15;text-transform:uppercase;letter-spacing:.02em;overflow-wrap:anywhere;min-height:2.3em}
   .meta{color:var(--dim);font-size:11px;margin:2px 0 0;line-height:1.45;display:flex;gap:3px;white-space:nowrap;min-width:0}.meta-maker{min-width:0;overflow:hidden;text-overflow:ellipsis}.meta-fixed{flex:none}
@@ -134,15 +137,16 @@
   .empty{text-align:center;padding:60px 20px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
   [hidden]{display:none!important}
   .refreshbtn{display:grid;place-items:center;min-width:44px;min-height:44px;margin-left:0}.refreshbtn:disabled{opacity:.6;cursor:wait}
-  @media(max-width:899px){header .brand{order:-2;flex:1 1 calc(100% - 64px);margin-right:0}header .refreshbtn{order:-1;margin-left:0}}
+  @media(max-width:1099px){header .brand{order:-2;flex:1 1 calc(100% - 64px);margin-right:0}header .refreshbtn{order:-1;margin-left:0}}
   .brand{display:flex;align-items:center;gap:8px;min-width:0;margin-right:6px}.brand img{width:44px;height:44px;object-fit:contain}.brand strong{font-size:15px;max-width:180px;overflow-wrap:anywhere}.accountbtn{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;min-height:40px;padding:6px 10px;cursor:pointer}
   .adminpanel{max-width:700px;margin:auto}.adminpanel h2{font-size:26px;margin:8px 0}.adminpanel h3{font-size:17px}.adminpanel form{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:16px;margin:16px 0}.adminpanel label{display:block;font-size:13px;color:var(--dim);margin:12px 0 6px}.adminpanel input{background:var(--bg);border:1px solid #31496e;color:var(--text);font:inherit;border-radius:6px;min-height:44px;padding:10px;width:100%;max-width:100%}.adminpanel select{min-height:44px}.adminpanel button{min-height:44px;margin-top:12px}.useritem{border-top:1px solid var(--border);padding:12px 0}.useritem strong{overflow-wrap:anywhere}.useractions{display:flex;flex-wrap:wrap;gap:8px}.useractions button{font-size:12px;margin-top:8px}.adminpanel .syncbtn{margin-left:0}.role{font-size:12px;color:var(--cyan);margin-left:8px}.adminmessage{color:var(--accent);overflow-wrap:anywhere}.account{font-size:12px;color:var(--dim)}
   header button,header .accountbtn,header .syncbtn{min-height:34px;height:34px;padding:6px 10px;font-size:13px;line-height:20px;box-sizing:border-box}
   header .refreshbtn{min-width:34px;min-height:34px;width:34px;height:34px;padding:6px}
   @media(pointer:coarse),(max-width:899px){header button,header .accountbtn,header .syncbtn{min-height:44px;height:44px}header .refreshbtn{min-width:44px;min-height:44px;width:44px;height:44px}}
+  .setting-toggle{display:flex;gap:12px;align-items:center;min-height:44px;cursor:pointer}.setting-toggle input{width:22px;height:22px;accent-color:var(--accent)}
   .instructions-page{max-width:760px;margin:auto}.instructions-page h2{font-size:26px}.instructions-page p,.instructions-page li{line-height:1.65;overflow-wrap:anywhere}.instructions-page pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface);border:1px solid var(--border);padding:16px;border-radius:8px}.instructions-page h3{margin-top:28px}.instructions-page #instructions-admin-note{border-top:1px solid var(--border);padding-top:18px}
   .header-menu{display:contents}.menu-toggle,.mobile-status{display:none}
-  @media(max-width:599px){
+  @media(max-width:1099px){
     header{padding:10px 20px;gap:6px;position:sticky}
     header .brand{order:0;flex:1 1 0;gap:6px;margin-right:0}
     .brand img{width:36px;height:36px}.brand strong{font-size:14px;line-height:1.2;max-width:none}
@@ -166,13 +170,14 @@
     <button id="tab-library" aria-pressed="true">Library</button>
     <button id="tab-stats" aria-pressed="false">Stats</button>
     <button id="tab-instructions" aria-pressed="false" hidden>Instructions</button>
+    <button id="tab-settings" aria-pressed="false">Settings</button>
     <button id="tab-admin" aria-pressed="false" hidden>Admin</button>
   </nav>
   <button class="syncbtn" id="sync-btn" aria-label="Sync new or changed tables and retry unavailable images">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
     <span id="sync-label">Sync</span>
   </button>
-  <span class="pill"><span class="dot" id="status-dot"></span><span id="status-label">Cabinet status unknown</span></span>
+  <span class="pill"><span class="dot" id="status-dot" aria-hidden="true"></span><span id="status-label">Cabinet status unknown</span></span>
   <span id="account-name" class="account"></span><button id="logout" class="accountbtn">Sign out</button>
   </div>
   <button id="refresh-btn" class="accountbtn refreshbtn" aria-label="Refresh dashboard data" title="Refresh dashboard data"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
@@ -229,6 +234,7 @@
     <div class="panel"><h3>Tables by decade</h3><div id="decades"></div></div>
   </section>
   <section id="view-instructions" class="instructions-page" hidden><h2>Instructions</h2><div id="instructions-content" role="region" aria-label="Cabinet instructions"></div><p id="instructions-admin-note" class="muted" hidden>Edit instructions.md in the dashboard data volume, then tap Refresh. Supports headings, paragraphs, lists and fenced code blocks. Raw HTML and links display as text. Maximum 64 KB, UTF-8.</p></section>
+  <section id="view-settings" class="instructions-page" hidden><h2>Settings</h2><div class="panel"><h3>Display</h3><label class="setting-toggle"><input type="checkbox" id="colorblind-setting">Colorblind-friendly colors</label><p class="muted">Uses blue and orange instead of red and green. Hearts also change shape when saved, and cabinet status always includes a label. Saved to your account on this server, across devices.</p><label class="setting-toggle"><input type="checkbox" id="timer-setting" checked>Show elapsed table time</label><p class="muted">Time since VPin Studio detected this table launch, including pauses. Not ball-in-play time. Unavailable if the cabinet does not report a start time.</p><p id="preference-message" class="muted" role="status"></p></div></section>
   <section id="view-admin" class="adminpanel" hidden>
     <h2>Admin</h2><p class="muted">Manage access to this cabinet. Viewers can browse tables and scores. Only admins can launch tables, Sync or manage users.</p>
     <p id="admin-message" class="adminmessage" role="status"></p>

@@ -37,6 +37,8 @@ class AuthStore:
                     token TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
                     csrf TEXT NOT NULL, expires INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER PRIMARY KEY, colorblind INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS favourites (user_id INTEGER NOT NULL, game_id INTEGER NOT NULL, PRIMARY KEY(user_id,game_id));
                 CREATE TABLE IF NOT EXISTS attempts (
                     bucket TEXT PRIMARY KEY, count INTEGER NOT NULL, until_at INTEGER NOT NULL);
             ''')
@@ -44,6 +46,9 @@ class AuthStore:
             if not row:
                 db.execute("INSERT INTO settings VALUES ('signing_key', ?)", (secrets.token_hex(32),))
             self.key = (row[0] if row else db.execute("SELECT value FROM settings WHERE key='signing_key'").fetchone()[0]).encode()
+        with self.db() as db:
+            if 'show_timer' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_timer INTEGER NOT NULL DEFAULT 1')
         os.chmod(self.path, 0o600)
         if self.needs_setup() and not os.path.exists(self.setup_path):
             fd = os.open(self.setup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -201,6 +206,39 @@ class AuthStore:
                     raise AuthError('Keep at least one active admin.')
             db.execute('UPDATE users SET role=?,active=?,password=? WHERE id=?',(role,int(active),password_hash or row['password'],user_id))
             db.execute('DELETE FROM sessions WHERE user_id=?',(user_id,))
+
+    def preferences(self,user_id):
+        with self.db() as db:
+            row=db.execute('SELECT colorblind,show_timer FROM preferences WHERE user_id=?',(user_id,)).fetchone()
+            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True}
+
+    def set_preferences(self,user_id,colorblind,show_timer=True):
+        with self.lock,self.db() as db:
+            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer',(user_id,int(colorblind),int(show_timer)))
+        return self.preferences(user_id)
+
+    def favourites(self, user_id):
+        with self.db() as db:
+            return [r[0] for r in db.execute('SELECT game_id FROM favourites WHERE user_id=? ORDER BY game_id',(user_id,))]
+
+    def personal_write_throttle(self,user_id):
+        key='personal:'+str(user_id);now=int(time.time())
+        with self.lock,self.db() as db:
+            db.execute('DELETE FROM attempts WHERE until_at < ?',(now,))
+            row=db.execute('SELECT count FROM attempts WHERE bucket=?',(key,)).fetchone()
+            if row and row[0]>=120:
+                raise AuthError('Too many personal setting changes. Try again in 15 minutes.',429)
+            db.execute('INSERT INTO attempts VALUES (?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1',(key,now+900))
+
+    def set_favourite(self,user_id,game_id,saved):
+        with self.lock,self.db() as db:
+            if saved:
+                if db.execute('SELECT count(*) FROM favourites WHERE user_id=?',(user_id,)).fetchone()[0]>=10000:
+                    raise AuthError('Favourite limit reached.')
+                db.execute('INSERT OR IGNORE INTO favourites VALUES (?,?)',(user_id,game_id))
+            else:
+                db.execute('DELETE FROM favourites WHERE user_id=? AND game_id=?',(user_id,game_id))
+        return self.favourites(user_id)
 
     def branding(self):
         with self.db() as db:
