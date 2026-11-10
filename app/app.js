@@ -3,11 +3,16 @@ const $ = (id) => document.getElementById(id);
 let CURRENT_USER = null;
 let CSRF = "";
 const nativeFetch = window.fetch.bind(window);
+function operationName(url){const p=new URL(url,location.href).pathname;if(p.startsWith('/api/details/'))return 'Table details';if(p.startsWith('/api/scorehistory/'))return 'Score history';if(p.startsWith('/api/admin/users'))return 'User management';return ({'/api/library':'Library refresh','/api/status':'Cabinet status','/api/favourites':'Personal favourites','/api/instructions':'Cabinet instructions','/api/preferences':'Display settings','/api/status/dismiss':'Session dismissal','/api/exit':'Exit table / frontend','/api/play':'Table launch','/api/cache-thumbs':'Image caching','/api/collection':'Background collection settings','/api/settings':'Branding','/api/auth/logout':'Sign out','/api/auth/status':'Sign in'})[p]||'Dashboard request';}
+function requestFailure(url,write=false){return operationName(url)+(write?' could not be confirmed. Check its current state before trying again.':' could not be loaded. Keeping saved data and retrying when connected.');}
 window.fetch = async (url, options={}) => {
   const headers = new Headers(options.headers || {});
   if (new URL(url,location.href).origin === location.origin && !["GET","HEAD"].includes((options.method || "GET").toUpperCase())) headers.set("X-CSRF-Token", CSRF);
-  const response = await nativeFetch(url,{...options,headers});
-  if (response.status === 401) location.replace("/login");
+  const write=!["GET","HEAD"].includes((options.method||"GET").toUpperCase());
+  let response;const controller=new AbortController();const slow=new URL(url,location.href).searchParams.get('refresh')==='1'||['/api/cache-thumbs','/api/exit'].includes(new URL(url,location.href).pathname);const timeout=setTimeout(()=>controller.abort(),slow?150000:20000);
+  try{response=await nativeFetch(url,{...options,headers,signal:options.signal||controller.signal});}catch{throw new Error(requestFailure(url,write));}finally{clearTimeout(timeout);}
+  if (response.status === 401){location.replace("/login");throw new Error('Your session expired. Sign in again.');}
+  const readJSON=response.json.bind(response);response.json=async()=>{try{return await readJSON();}catch{throw new Error(operationName(url)+' returned an unreadable response.'+(write?' Check its current state before trying again.':' Retrying when connected.'));}};
   return response;
 };
 let DATA = { tables: [], scores: [], playlists: [], thumbsEnabled: false };
@@ -16,6 +21,7 @@ let FILTER = "all";
 let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let SHOW_TIMER=true;
+let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
 let BROWSE = "maker";
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -30,12 +36,13 @@ function heartButton(t){
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;renderStatus();renderLibrary();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('timer-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showTimer:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('playtime-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPlayTime:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('status-details-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{statusDetails:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -43,7 +50,7 @@ function elapsedLabel(started,now=Date.now()){
   return 'Elapsed '+(hours?hours+':'+String(minutes).padStart(2,'0'):String(minutes))+':'+String(seconds).padStart(2,'0');
 }
 function statusAgeLabel(checkedAt,now=Date.now()) {if(!Number.isFinite(checkedAt)||checkedAt<=0)return 'Check time unavailable';const age=Math.max(0,Math.floor((now-checkedAt*1000)/1000));return age<60?'Checked '+age+'s ago':'Checked '+Math.floor(age/60)+'m ago';}
-function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started);const age=$('now-playing').querySelector('.status-age');if(age)age.textContent=statusAgeLabel(STATUS.checkedAt);}
+function updateElapsed(){const label=$('now-playing').querySelector('.elapsed');if(label)label.textContent=' · '+elapsedLabel(STATUS.started).replace(/^Elapsed /,'');const age=$('now-playing').querySelector('.status-age');if(age)age.textContent=statusAgeLabel(STATUS.checkedAt);const dismiss=$('now-playing').querySelector('.dismiss-session');if(dismiss)dismiss.title=statusAgeLabel(STATUS.checkedAt)+'. Studio may retain a session after a crash. Dismiss on this dashboard only; Play stays blocked.';}
 setInterval(updateElapsed,1000);
 async function loadFavourites(){const response=await fetch('/api/favourites');if(!response.ok)throw new Error('Your favourites could not be loaded.');const result=await response.json();FAVOURITES=new Set(result.gameIds);}
 async function toggleFavourite(gameId){
@@ -196,31 +203,35 @@ function renderSidebar(M) {
   }));
 }
 
+let EXIT_PENDING=false;
 function renderStatus() {
   const dot = $("status-dot"), label = $("status-label");
-  dot.style.background = STATUS.state === "online" ? "var(--green)" : STATUS.state === "offline" ? "var(--red)" : "var(--dim)";
-  label.textContent = STATUS.state === "online" ? "Cabinet online" : STATUS.state === "offline" ? "Cabinet offline" : "Cabinet status unknown";
-  dot.style.borderRadius=STATUS.state==="online"?"50%":"1px";$("mobile-status").style.borderRadius=dot.style.borderRadius;
-  $("mobile-status").style.background=dot.style.background;$("mobile-status").setAttribute("aria-label",label.textContent);$("mobile-status").title=label.textContent;
+  const stale=STATUS.checkedAt && Date.now()/1000-STATUS.checkedAt>125;
+  const state=stale?'stale':STATUS.state==='offline'?'offline':STATUS.state!=='online'?'unknown':STATUS.gamePlaying?'busy':'idle';
+  const labels={idle:'Cabinet idle',busy:'Cabinet busy - Studio reports an active table',offline:'Cabinet offline',unknown:'Cabinet status unknown',stale:'Cabinet status stale - refresh needed'};
+  label.textContent=labels[state];
+  for(const light of [dot,$('mobile-status')]){light.className='dot '+(light.id==='mobile-status'?'mobile-status ':'')+'light-'+state;light.style.background='';light.style.borderRadius='';light.title=labels[state]+'. See Status key in Settings.';light.setAttribute('aria-label',labels[state]);light.tabIndex=0;}
+  const pill=dot.closest('.pill');pill.title=dot.title;pill.setAttribute('aria-label',labels[state]);
+  const exit=$('exit-btn');exit.hidden=CURRENT_USER?.role!=='admin';exit.disabled=EXIT_PENDING||!STATUS.gamePlaying||!STATUS.started||!STATUS.gameId||STATUS.state!=='online'||!!stale;exit.title=exit.disabled?'Exit needs a fresh online active session. Refresh status if needed.':'Exit table / frontend - confirmation required';
   const np = $("now-playing");
   if (STATUS.gamePlaying) {
     np.style.display="flex";np.innerHTML="";
     const t=DATA.tables.find(t=>t.gameId===STATUS.gameId);
     const text=document.createElement(t && !STATUS.dismissed?'button':'span');
-    text.textContent=STATUS.dismissed?"Session dismissed":"Studio reports"+(t?": "+t.name+" ›":STATUS.playingText?": "+STATUS.playingText:" a table active");
+    text.textContent=STATUS.dismissed?'Session dismissed':(t?.name||STATUS.playingText||'Table reported active');
+    text.title=statusAgeLabel(STATUS.checkedAt)+'. Reported by Studio, not a process check; it may remain active after a crash.';
     if(t && !STATUS.dismissed){text.type='button';text.setAttribute('aria-label','Go to '+t.name+' in Library');text.addEventListener('click',()=>{switchTab('library');$('search').value='';selectFilter('all');const card=$('grid').querySelector('[data-open="'+t.gameId+'"]');if(card){card.scrollIntoView({block:'center',behavior:'smooth'});card.focus({preventScroll:true});}});}
-    if(SHOW_TIMER && !STATUS.dismissed){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started);text.append(timer);}
+    if(SHOW_TIMER && !STATUS.dismissed){const timer=document.createElement('span');timer.className='elapsed';timer.textContent=' · '+elapsedLabel(STATUS.started).replace(/^Elapsed /,'');text.append(timer);}
     const main=document.createElement('div');main.className='reported-session';main.append(text);np.append(main);
-    const info=document.createElement('div');info.className='reported-info';
-    const age=document.createElement('span');age.className='status-age';age.textContent=statusAgeLabel(STATUS.checkedAt);info.append(age);
-    const caveat=document.createElement('span');caveat.textContent=STATUS.dismissed?'Hidden on this dashboard only. Studio still reports busy; Play stays blocked.':'Studio status, not a process check. It may remain active after a crash.';info.append(caveat);
-    if(CURRENT_USER?.role==='admin' && !STATUS.dismissed){const dismiss=document.createElement('button');dismiss.type='button';dismiss.className='dismiss-session';dismiss.textContent='Dismiss this session';dismiss.disabled=!STATUS.started;dismiss.title=STATUS.started?'Hide this session on this dashboard without changing the cabinet or enabling Play.':'Studio must report a session start before it can be dismissed safely.';dismiss.addEventListener('click',async()=>{if(!confirm('Hide this reported session on this dashboard? This does not stop a table, reset Studio, or enable Play.'))return;dismiss.disabled=true;try{await apiPost('/api/status/dismiss',{gameId:STATUS.gameId,started:STATUS.started});await loadStatus();}catch(error){showBanner(error.message);dismiss.disabled=false;}});info.append(dismiss);}
-    np.append(info);
+    if(CURRENT_USER?.role==='admin' && !STATUS.dismissed && STATUS.started){const dismiss=document.createElement('button');dismiss.type='button';dismiss.className='dismiss-session';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss this reported session');dismiss.title=statusAgeLabel(STATUS.checkedAt)+'. Studio may retain a session after a crash. Dismiss on this dashboard only; Play stays blocked.';dismiss.addEventListener('click',async()=>{if(!confirm(statusAgeLabel(STATUS.checkedAt)+'. Studio may still report a crashed table. Hide this session on this dashboard only? This does not stop a table, reset Studio, or enable Play.'))return;dismiss.disabled=true;try{await apiPost('/api/status/dismiss',{gameId:STATUS.gameId,started:STATUS.started});await loadStatus();}catch(error){showBanner(error.message);dismiss.disabled=false;}});if(STATUS_DETAILS){dismiss.textContent='Dismiss this session';dismiss.classList.add('dismiss-detailed');}main.append(dismiss);}
+    if(STATUS_DETAILS){const info=document.createElement('div');info.className='reported-info';const age=document.createElement('span');age.className='status-age';age.textContent=statusAgeLabel(STATUS.checkedAt);info.append(age);const caveat=document.createElement('span');caveat.textContent=STATUS.dismissed?'Hidden on this dashboard only. Studio still reports busy; Play stays blocked.':'Studio status, not a process check. It may remain active after a crash.';info.append(caveat);const detailedDismiss=main.querySelector('.dismiss-detailed');if(detailedDismiss)info.append(detailedDismiss);np.append(info);}
+
+
   }
   else np.style.display = "none";
 }
 
-function canLaunch(t) { return CURRENT_USER?.role === "admin" && STATUS.state === "online" && !STATUS.gamePlaying && t.launchable === true && Number.isInteger(t.gameId) && t.gameId > 0; }
+function canLaunch(t) { return CURRENT_USER?.role === "admin" && STATUS.state === "online" && (!STATUS.checkedAt || Date.now()/1000-STATUS.checkedAt<=125) && !STATUS.gamePlaying && t.launchable === true && Number.isInteger(t.gameId) && t.gameId > 0; }
 
 function selectFilter(key) {
   FILTER = key;
@@ -360,39 +371,76 @@ async function openDetail(gameId) {
   loadScoreHistory(gameId);
   $("detail-close").addEventListener("click", () => d.close());
   $("detail-play")?.addEventListener("click", () => { d.close(); play(gameId); });
-  try {
-    const res = await fetch("/api/details/" + gameId).then((r) => r.json());
-    if (d.dataset.gameId !== String(gameId)) return;
+  loadModalData('details',gameId);
+}
+
+const MODAL_CACHE=new Map();
+function modalCacheNote(res){const c=res.cache;if(!c)return '';if(c.notSaved)return c.refreshing?'Not saved yet. Checking the cabinet...':'Not saved yet. Cabinet must be online and idle to save this data.';return 'Saved '+new Date(c.savedAt*1000).toLocaleString()+(c.refreshing?' · Checking for updates.':'.');}
+function renderModalData(kind,gameId,res){
+  if($('detail').dataset.gameId!==String(gameId)||!$('detail').open)return;
+  const node=$(kind==='details'?'detail-extra':'detail-history');
+  if(res.cache?.notSaved){node.textContent=modalCacheNote(res);return;}
+  if(kind==='details'){
     const fields = res && res.details && typeof res.details === "object"
       ? Object.entries(res.details).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v) && v !== "").slice(0, 20) : [];
-    $("detail-extra").innerHTML = fields.length
+    node.innerHTML = fields.length
       ? "<h3 style='text-transform:uppercase;font-size:13px;color:var(--dim)'>Cabinet details</h3>" + fields.map(([k, v]) => k.toLowerCase()==="extradetails"
         ? `<details class="extra-details"><summary>Extra details</summary><div class="extra-details-body">${esc(v)}</div></details>`
         : `<div class="detail-field"><span class="muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
       : "The cabinet reported no extra detail fields for this table.";
-  } catch { if (d.dataset.gameId === String(gameId)) $("detail-extra").textContent = "Cabinet details could not be loaded."; }
-}
-
-async function loadScoreHistory(gameId) {
-  try {
-    const response = await fetch("/api/scorehistory/" + gameId);
-    if (!response.ok) throw new Error("History unavailable");
-    const history = await response.json();
-    if (!Array.isArray(history?.scores)) throw new Error("Unsupported history response");
-    if ($("detail").dataset.gameId !== String(gameId)) return;
+  }else{
     const seen = new Set();
-    const snapshots = history.scores.filter((h) => h && h.createdAt && Number.isFinite(Date.parse(h.createdAt)) && Array.isArray(h.scores))
+    const snapshots = res.scores.filter((h) => h && h.createdAt && Number.isFinite(Date.parse(h.createdAt)) && Array.isArray(h.scores))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).filter((h) => {
         const signature = h.createdAt + JSON.stringify(h.scores.map((s) => [s.position, s.playerInitials, s.score, s.label, s.suffix]));
         if (seen.has(signature)) return false;
         seen.add(signature); return true;
       }).slice(0, 5);
-    $("detail-history").innerHTML = snapshots.length ? snapshots.map((h, i) => `<details class="history-entry" ${i === 0 ? "open" : ""}><summary>${esc(new Date(h.createdAt).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit", hour12:true}))}</summary>${h.scores.filter((s) => Number.isFinite(Number(s.score)) && Number(s.score) > 0).map((s) => `<div class="row"><span>${esc(s.label || (s.position ? "#" + s.position : "Score"))} · ${esc(s.playerInitials || "Unknown")}</span><strong>${fmt(s.score)}${esc(s.suffix || "")}</strong></div>`).join("") || '<p class="muted">No numeric scores in this snapshot.</p>'}</details>`).join("") : "No saved score changes reported for this table.";
-  } catch {
-    if ($("detail").dataset.gameId === String(gameId)) $("detail-history").textContent = "Score history is unavailable from the bridge or this version of VPin Studio.";
+    node.innerHTML = snapshots.length ? snapshots.map((h, i) => `<details class="history-entry" ${i === 0 ? "open" : ""}><summary>${esc(new Date(h.createdAt).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit", hour12:true}))}</summary>${h.scores.filter((s) => Number.isFinite(Number(s.score)) && Number(s.score) > 0).map((s) => `<div class="row"><span>${esc(s.label || (s.position ? "#" + s.position : "Score"))} · ${esc(s.playerInitials || "Unknown")}</span><strong>${fmt(s.score)}${esc(s.suffix || "")}</strong></div>`).join("") || '<p class="muted">No numeric scores in this snapshot.</p>'}</details>`).join("") : "No saved score changes reported for this table.";
+  }
+  const note=document.createElement('p');note.className='panel-note';note.textContent=modalCacheNote(res);node.prepend(note);
+}
+async function loadModalData(kind,gameId){
+  const key=kind+'/'+gameId,previous=MODAL_CACHE.get(key);
+  if(previous)renderModalData(kind,gameId,previous);
+  try{
+    for(let attempt=0;attempt<8;attempt++){
+      if($('detail').dataset.gameId!==String(gameId)||!$('detail').open)return;
+      const response=await fetch('/api/'+key);
+      if(!response.ok)throw new Error('Saved table data is unavailable.');
+      const res=await response.json();
+      if(!res.cache?.notSaved && (kind==='details'?!res.details:!Array.isArray(res.scores)))throw new Error('Saved table data is unavailable.');
+      if(!res.cache?.notSaved){MODAL_CACHE.set(key,res);if(MODAL_CACHE.size>100)MODAL_CACHE.delete(MODAL_CACHE.keys().next().value);}
+      renderModalData(kind,gameId,res);
+      if(!res.cache?.refreshing)return;
+      await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+    if($('detail').dataset.gameId===String(gameId)){
+      const node=$(kind==='details'?'detail-extra':'detail-history');
+      if(!MODAL_CACHE.has(key))node.textContent='Not saved yet. The cabinet check is taking longer than expected. Reopen this table later.';
+    }
+  }catch{
+    if($('detail').dataset.gameId!==String(gameId))return;
+    const node=$(kind==='details'?'detail-extra':'detail-history');
+    if(previous){renderModalData(kind,gameId,previous);const note=document.createElement('p');note.className='panel-note';note.textContent='Update unavailable. Showing last saved data.';node.prepend(note);}
+    else node.textContent='Not saved yet. Data is unavailable; reopen this table when the cabinet is online and idle.';
   }
 }
+function loadScoreHistory(gameId){return loadModalData('scorehistory',gameId);}
 
+async function exitTable(){
+  if(CURRENT_USER?.role!=='admin'||EXIT_PENDING||$('exit-btn').disabled)return;
+  const session={gameId:STATUS.gameId,started:STATUS.started};
+  const name=DATA.tables.find(t=>t.gameId===session.gameId)?.name||'the reported table';
+  if(!confirm('Exit '+name+' and close the cabinet frontend? This can force-close the table and lose an unsaved game. It does not launch another table.'))return;
+  EXIT_PENDING=true;renderStatus();
+  try{await apiPost('/api/exit',session);showBanner('Exit requested. Checking reported cabinet status; this is not proof that every process closed.');await loadStatus();}
+  catch(error){showBanner(error.message);await loadStatus();}
+  finally{EXIT_PENDING=false;renderStatus();}
+}
+$('exit-btn').addEventListener('click',exitTable);
+$('account-toggle').addEventListener('click',()=>{const open=$('account-options').hidden;$('account-options').hidden=!open;$('account-toggle').setAttribute('aria-expanded',String(open));});
+document.addEventListener('click',event=>{if(!event.target.closest('.account-menu')){$('account-options').hidden=true;$('account-toggle').setAttribute('aria-expanded','false');}});
 async function play(gameId) {
   if (CURRENT_USER?.role !== "admin") return;
   const t = DATA.tables.find((x) => x.gameId === gameId);
@@ -411,7 +459,7 @@ function showBanner(msg) { const b = $("banner"); b.textContent = msg; b.style.d
 
 async function loadStatus() {
   try {
-    const res = await fetch("/api/status").then((r) => r.json());
+    const response = await fetch("/api/status");if(!response.ok)throw new Error("Cabinet status unavailable.");const res=await response.json();
     const reachable = res && res.health && res.health.cabinet_reachable;
     const playing = (res && res.health && res.health.game_playing) || (res && res.status && Number(res.status.gameId) > 0);
     STATUS = {
@@ -423,47 +471,67 @@ async function loadStatus() {
       dismissed:res?.dismissed===true,
       playingText: DATA.tables.find(t=>t.gameId===Number(res?.status?.gameId))?.name || null,
     };
-  } catch { STATUS = { state: "offline", gamePlaying: false, playingText: null }; }
+  } catch { STATUS = { state: "unknown", gamePlaying: false, playingText: null }; }
   renderStatus(); renderLibrary();
   const activePlay=$("detail-play");if(activePlay){const t=DATA.tables.find(t=>String(t.gameId)===$("detail").dataset.gameId);if(!t||!canLaunch(t)){activePlay.remove();$("detail").querySelector(".launch-note")?.remove();}}
 }
 
-async function load(manual,refresh=false) {
+let loadInFlight=null;
+function load(manual,refresh=false){if(loadInFlight)return (manual||refresh)?loadInFlight.then(()=>load(manual,refresh)):loadInFlight;loadInFlight=performLoad(manual,refresh).finally(()=>{loadInFlight=null;});return loadInFlight;}
+async function performLoad(manual,refresh=false) {
   if (manual && CURRENT_USER?.role !== "admin") return;
   const btn = $("sync-btn"), label = $("sync-label"), note = $("sync-note");
   if (manual) {
     btn.disabled = true; btn.classList.add("syncing"); label.textContent = "Syncing…";
     note.classList.remove("err"); note.textContent = "Syncing with the cabinet…";
   }
-  let error = null;
+  let error = null;const readIssues=[];
   try {
-    const res = await fetch("/api/library"+((manual||refresh)?"?refresh=1":"")).then((r) => r.json());
+    const response=await fetch("/api/library"+((manual||refresh)?"?refresh=1":""));if(!response.ok)throw new Error('Library refresh unavailable (HTTP '+response.status+').');const res=await response.json();
     if (res && res.ok){ DATA = res;
       if(res.collection){const age=(Date.now()/1000-res.collection.capturedAt)/60;const stamp=new Date(res.collection.capturedAt*1000).toLocaleString();$("sync-note").textContent='Saved cabinet data · '+stamp+(age>10?' · may be out of date':'');}
     }
     else error = (res && res.error) || "the bridge pull failed";
   } catch (e) { error = e.message; }
-  try{await loadFavourites();}catch(e){showBanner(e.message);}
+  try{await loadFavourites();}catch(e){readIssues.push('Personal favourites unavailable');}
   renderLibrary(); renderStats();
   await loadStatus();
-  await loadInstructions();
+  updateModalCache();
+  if(!await loadInstructions())readIssues.push('Cabinet instructions unavailable');
+  if(error)readIssues.unshift('Library refresh unavailable');
+  if(STATUS.state==='unknown')readIssues.push('Cabinet status unavailable');
+  if(readIssues.length){note.textContent=readIssues.join(' · ')+'. Keeping saved data; retrying when connected.';note.classList.remove('err');}else note.classList.remove('err');
   if (manual) {
     btn.disabled = false; btn.classList.remove("syncing"); label.textContent = "Sync";
-    if (error) {
+    if (error || readIssues.length) {
+      error=error||readIssues.join(' · ');
       note.classList.add("err");
       note.textContent = "Sync failed: " + error + ". Showing the last data loaded.";
       if (DATA.tables.length === 0) $("empty-text").textContent = "The bridge pull failed: " + error;
     } else {
-      startImageCache();
+      startImageCache();startModalCache();
       const when = new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
       note.textContent = "Synced with the cabinet " + when + " · " + DATA.tables.length + " tables · " + DATA.scores.length + " scores.";
     }
   }
-  return !error;
+  return !error && !readIssues.length;
 }
 
+let modalCachePoll=null;
+async function updateModalCache(){
+  if(document.hidden||navigator.onLine===false)return;
+  try{
+    const response=await fetch('/api/modal-cache');if(!response.ok)return;
+    const state=await response.json(),node=$('modal-cache-progress');node.style.display=state.total?'block':'none';
+    node.textContent=state.running?`${state.paused?'Table data cache paused while cabinet is busy or offline':'Saving table details and history'} ${state.done}/${state.total}`:`Table data saved: ${state.done-state.failed}/${state.total}${state.failed?' · '+state.failed+' unavailable; retry on Sync':''}${state.incomplete?' · incomplete; tap Sync to continue':''}`;
+    if(state.running&&!modalCachePoll)modalCachePoll=setInterval(updateModalCache,5000);
+    if(!state.running&&modalCachePoll){clearInterval(modalCachePoll);modalCachePoll=null;}
+  }catch{const node=$('modal-cache-progress');node.style.display='block';node.textContent='Table data cache progress unavailable.';}
+}
+async function startModalCache(){try{await apiPost('/api/modal-cache',{gameIds:DATA.tables.map(t=>t.gameId)});await updateModalCache();}catch(error){const node=$('modal-cache-progress');node.style.display='block';node.textContent=error.message;}}
 let cachePoll = null;
 async function updateImageCache() {
+  if(document.hidden || navigator.onLine===false)return;
   try {
     const state = await fetch("/api/cache-thumbs").then((r) => r.json());
     const failures=Array.isArray(state.failedTables)?state.failedTables:[];
@@ -504,7 +572,7 @@ function switchTab(which) {
 
 async function apiPost(url,body) {
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const result=await r.json(); if(!r.ok) throw new Error(result.error||'Request failed.'); return result;
+  let result;try{result=await r.json();}catch{throw new Error(operationName(url)+' returned an unreadable response. Check its current state before trying again.');}if(!r.ok)throw new Error(operationName(url)+': '+(result.error||'Request failed (HTTP '+r.status+').'));return result;
 }
 function instructionsHTML(text) {
   let output=[],paragraph=[],list=null,code=null;
@@ -524,10 +592,10 @@ async function loadInstructions(){
   let available=false;
   try{const response=await fetch('/api/instructions');const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'Instructions could not be loaded.');
     available=!!data.text.trim();$('instructions-content').innerHTML=available?instructionsHTML(data.text):'';
-  }catch(e){$('instructions-content').textContent='';if(CURRENT_USER?.role==='admin')showBanner(e.message);}
+  }catch(e){return false;}
   $('tab-instructions').hidden=!available;
   if(!available){const selected=$('tab-instructions').getAttribute('aria-pressed')==='true';$('view-instructions').hidden=true;if(selected)switchTab('library');}
-  $('instructions-admin-note').hidden=CURRENT_USER?.role!=='admin';
+  $('instructions-admin-note').hidden=CURRENT_USER?.role!=='admin';return true;
 }
 $('tab-instructions').addEventListener('click',()=>switchTab('instructions'));
 
@@ -603,8 +671,12 @@ $('branding-form').addEventListener('submit',async e=>{
   const state=await fetch('/api/auth/status').then(r=>r.json());if(!state.user){location.replace('/login');return;}
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
   $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
-  await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>load(false),30000);
-})();
+  await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
+})().catch(error=>showBanner(error.message||'Dashboard could not be loaded. Refresh to try again.'));
 
 $('playfield-lightbox').addEventListener('click',e=>{if(e.target===$('playfield-lightbox'))e.target.close();});
-$('playfield-lightbox').addEventListener('close',()=>{$('playfield-lightbox').innerHTML='';});
+$('playfield-lightbox').addEventListener('close',()=>{const box=$('playfield-lightbox');if(!box.open)box.innerHTML='';});
+
+function resumeDashboardReads(){if(CURRENT_USER && !document.hidden && navigator.onLine!==false)load(false);}
+document.addEventListener('visibilitychange',resumeDashboardReads);
+window.addEventListener('online',resumeDashboardReads);

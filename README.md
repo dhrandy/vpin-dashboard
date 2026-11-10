@@ -11,15 +11,16 @@ A self-hosted pinball library and stats dashboard for a cabinet running VPin Stu
 - Library with playfield previews, search, filters, full table names, play counts and high scores.
 - Recently played and Recently added views choose their matching sort order. You can override the sort.
 - Stats with most/least played tables, recent play dates and score coverage. Highscore history contains saved snapshots, not guaranteed results from every play.
-- Built-in accounts: admins manage users, branding, Sync and Play; viewers browse only. Play is hidden and refused when the cabinet is unavailable, busy, or the table is not launchable.
+- Built-in accounts: admins manage users, branding, Sync, Play and Exit table; viewers browse only. Play is hidden and refused when the cabinet is unavailable, busy, or the table is not launchable.
 - Refresh requests a coordinated cabinet pull without starting an image job. Browser pages read the saved library/status every 30 seconds; background collection also works when no browser is open. Busy/offline pulls defer rather than overwrite a good library with partial data.
-- Sync refreshes the table list and incrementally caches new, missing, changed or previously failed images. Existing cache hits are skipped. Changed-image detection uses the modification revision supplied by Studio.
+- Sync refreshes the table list and incrementally caches new, missing, changed or previously failed images. It also starts one sequential background preload of details and score history for every table, with progress and unavailable counts. Fresh per-table entries are skipped. Each read is guarded by a live idle check, and a one-second throttle follows each data read. Busy/offline jobs pause, check again once a minute and stop incomplete after two hours; tap Sync to continue after a restart or timeout. No preload starts from regular Refresh or a 30-second page poll. Changed-image detection uses the modification revision supplied by Studio.
 - Full re-sync in Admin settings asks for confirmation before re-fetching all images. Existing previews remain available until replacements succeed. Image jobs pause while cabinet status is offline, unknown or busy.
 - Editable dashboard name/logo, plus a general cabinet Instructions page loaded from a local Markdown file.
 - Hearts on cards and details save Favourites per signed-in user, including viewers. Cabinet favourites stay separate. Personal lists never change cabinet playlists.
 - Per-user Settings stores Colorblind-friendly colors and the elapsed-time display on the server, across devices. Colorblind-friendly uses blue/orange with shape and text cues; default hearts are red.
-- The centered Studio reports banner links to the reported table card and shows elapsed time from VPin Studio's reported session start, including pauses. Studio may retain an active session after a crash; checked-at age is a fresh Studio read, not independent proof the VPX process is running. Admins can dismiss only that session on this dashboard; it remains busy and Play stays blocked. Dismissal clears on a confirmed idle state or a different identified session. Missing/invalid start time shows "Time unavailable". This is not ball-in-play time. The display can be hidden in Settings.
+- The centered compact table-name and duration banner links to the reported table card and shows elapsed time from VPin Studio's session start, including pauses. Studio may retain an active session after a crash. Admins get a small dismiss x; its confirmation explains this hides only that session on this dashboard and never re-enables Play. In Settings, Show detailed cabinet status adds last-checked age, crash guidance and a full Dismiss button. This per-user setting defaults off. Dismissal clears on a confirmed idle state or different identified session. Missing/invalid start time shows Time unavailable; elapsed time is not ball-in-play time and can be hidden separately.
 - Table cards can show cumulative `X min total` from Studio frontend analytics. This is not the last session duration. Missing values show Time unavailable; each user can hide it in Settings. Requires the current bridge analytics endpoint.
+- Compact header lights use different shapes for idle, busy, offline, unknown and stale, with a Status key in Settings and accessible labels. Admin Exit table stays at the top, requires confirmation, and can force-close the table and frontend, losing an unsaved game. Both dashboard and bridge revalidate the exact reported session and serialize Exit/Play. An accepted exit is not proof every process stopped; the dashboard waits for fresh reported status. It never auto-launches another table or retries an uncertain exit. Both containers need the matching update.
 - Tap a playfield in the details dialog to enlarge the existing 960px-wide cached detail image. Tap the image, Close, or Esc to return. No additional cabinet read or image copy is needed.
 - "No B2S or PUP" means the export explicitly reports neither a backglass nor a PUP pack. A reported PUP suppresses the flag. Unknown fields are not treated as absent. Details explain this is not proof of a launch error.
 - Phone/tablet hamburger menu and desktop sidebar.
@@ -161,7 +162,7 @@ Collection is enabled by default. In Admin, Background collection can be turned 
 - History is sampled, not a guaranteed record of every game, session duration or score. Polls may miss short sessions; busy deferral relies on Studio's own cumulative data surviving until the next successful pull.
 - History expires at 90 days, 10,000 rows or 25 MiB of compressed archived payload, whichever limit removes old rows first. The 25 MiB is not a whole-database cap: the latest snapshot, indexes and SQLite free-page overhead add space. Individual snapshots are limited to 4 MiB raw / 2 MiB compressed. Back up this database with the rest of `/data` and keep it private.
 
-The existing score-history modal still reads Studio's saved highscore versions on demand. Collector history is separate from those versions. Built-in favourites/preferences and collector state are local to this dashboard and never written into Studio.
+Table details and Studio saved highscore versions use a separate persistent per-table cache. Last-known safe fields render immediately, show a saved timestamp, and survive restart or cabinet outages. An uncached first view says Not saved yet and starts a background read only when live cabinet status is known idle. Failed refreshes never replace saved data with empty results. Collector history is separate from Studio versions. Cache payloads are bounded to 2,000 entries, 512 KiB per response and 16 MiB total; oldest entries are evicted. Refreshes coalesce with a 60-second retry cooldown; saved data is fresh for five minutes. Built-in favourites/preferences and collector state are local to this dashboard and never written into Studio.
 
 ## Cabinet instructions
 
@@ -199,11 +200,19 @@ Supported formatting: headings (`#` to `###`), paragraphs, bullet/numbered lists
 - `artifact/`: earlier artifact source; not the Python compose app.
 - `docker-compose.yml`: container startup, persistent volumes and healthcheck.
 
-The server calls vpin-bridge for games JSON/export, highscores, playlists, descriptive details, scorehistory, thumbnail previews, health/status and admin-authorized Play. Keys and cabinet addresses come from the environment, not repository content. Cabinet detail fields are allowlisted and text is privacy-filtered; extraDetails is collapsed by default. Unavailable images show a fallback and admin cache diagnostics rather than fabricated previews.
+The server calls vpin-bridge for games JSON/export, highscores, playlists, descriptive details, scorehistory, thumbnail previews, health/status and admin-authorized Play/Exit. Keys and cabinet addresses come from the environment, not repository content. Cabinet detail fields are allowlisted and text is privacy-filtered; extraDetails is collapsed by default. Unavailable images show a fallback and admin cache diagnostics rather than fabricated previews.
 
 ## AI usage
 
 AI-assisted development was used for this project. The maintainer reviews and decides what ships. This is alpha software; automated checks do not replace independent security review or testing on your own hardware. Report bugs without sharing credentials, cabinet addresses or private exports.
+
+## Browser connection recovery
+
+Modal/image reads accept only IDs in the saved library. Per-table background work is capped, deduplicated and byte-bounded; cached payloads stay private in the data volume. Image decoding is limited to PNG/JPEG with byte/pixel limits. Pillow 13.0.0 is pinned in a versioned private directory so an older persisted copy is not silently reused. Repository ignore rules exclude common runtime databases, logs and environment files.
+
+Routine reads pause while the page is hidden or the browser reports offline. Returning to the page or reconnecting requests one refresh; otherwise visible pages read saved dashboard data every 30 seconds. Overlapping refresh cycles are coalesced. A temporary read failure keeps the last library, personal favourites and instructions, names the failed read quietly in the saved-data line, and clears that notice after a successful cycle. Losing contact with the dashboard means cabinet status unknown, not a claim the cabinet itself is offline.
+
+Manual-action failures name the operation. Network failures after a write say its outcome could not be confirmed: check current state before trying again. Play and other writes are never replayed automatically. These messages do not identify whether the underlying cause was the phone connection, proxy or server.
 
 ## Tests
 

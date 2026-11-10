@@ -39,6 +39,7 @@ import stat
 from http.cookies import SimpleCookie
 from auth import AuthStore, AuthError
 from collector import Collector
+from table_cache import TableCache
 import csv
 import io
 import json
@@ -61,12 +62,16 @@ THUMB_DIR = os.path.join(THUMB_ROOT, "upright-v1")
 # Pillow is installed once into this folder on first use, so the app
 # files alone (pulled from the repo on restart) are enough: no
 # compose change and no repeated install cost.
-PYLIBS = os.path.join(os.path.dirname(THUMB_ROOT.rstrip("/")) or "/", "pylibs")
+PILLOW_VERSION = "13.0.0"
+PYLIBS = os.path.join(os.path.dirname(THUMB_ROOT.rstrip("/")) or "/", "pylibs", "pillow-" + PILLOW_VERSION)
 if os.path.isdir(PYLIBS) and PYLIBS not in sys.path:
     sys.path.insert(0, PYLIBS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTH_DIR = os.environ.get("AUTH_DIR", "/data/auth")
 INSTRUCTIONS_PATH = os.path.join(os.path.dirname(AUTH_DIR), "instructions.md")
+_TABLE_CACHE = None
+_TABLE_CACHE_LOCK = threading.Lock()
+_CONTROL_LOCK = threading.Lock()
 COLLECTOR = None
 AUTH = None
 _AUTH_LOCK = threading.Lock()
@@ -93,6 +98,45 @@ def read_instructions():
         return {"ok":True,"text":"","configured":False}
     except (OSError,UnicodeError):
         return {"ok":False,"error":"Instructions could not be read. Check the file format and permissions."}
+
+def table_cache():
+    global _TABLE_CACHE
+    with _TABLE_CACHE_LOCK:
+        if _TABLE_CACHE is None:
+            _TABLE_CACHE = TableCache(AUTH_DIR)
+    return _TABLE_CACHE
+
+
+def known_table(game_id):
+    # In production the saved collector library is the only table index.
+    # Do not let a viewer probe arbitrary cabinet IDs through read routes.
+    return COLLECTOR is None or any(t.get('gameId')==game_id for t in COLLECTOR.library().get('tables',[]))
+
+
+def modal_idle():
+    try:
+        status=bridge('GET','/api/status',timeout=5)
+        return isinstance(status,dict) and type(status.get('gameId')) is int and status['gameId']<=0
+    except Exception:
+        return False
+
+
+def modal_read(kind, game_id):
+    # Background reads only when fresh live status is known idle. Avoid adding
+    # per-table work while the cabinet is busy or powered off.
+    status = bridge('GET', '/api/status', timeout=5)
+    if not isinstance(status, dict) or type(status.get('gameId')) is not int or status['gameId'] > 0:
+        raise ValueError('Cabinet not known idle')
+    raw = bridge('GET', f'/api/{kind}/{game_id}', timeout=8)
+    if kind == 'scorehistory':
+        if not isinstance(raw,dict) or not isinstance(raw.get('scores'),list):
+            raise ValueError('Invalid history response')
+        return safe_history(raw)
+    if not isinstance(raw, dict) or raw.get('ok') is False or 'raw' in raw:
+        raise ValueError('Invalid details response')
+    allowed = {'author','designedBy','gameDisplayName','gameName','gameRating','gameTheme','gameType','gameVersion','gameYear','manufacturer','numberOfPlayers','numberPlays','category','extraDetails'}
+    return {'ok':True,'details':{k:safe_value(v) for k,v in raw.items() if k in allowed and isinstance(v,(str,int,float,bool))}}
+
 
 def public_started(value):
     if not isinstance(value,str) or len(value)>64:
@@ -135,7 +179,8 @@ def bridge(method, path, payload=None, timeout=30):
     if data:
         req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
+        body = resp.read(16*1024*1024+1)
+        if len(body)>16*1024*1024:raise ValueError("Bridge response exceeds limit")
         try:
             return json.loads(body.decode("utf-8"))
         except Exception:
@@ -426,7 +471,9 @@ def bridge_bytes(path, timeout=60):
     req = urllib.request.Request(BRIDGE_URL + path, method="GET")
     req.add_header("X-Api-Key", API_KEY)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.headers.get("Content-Type", ""), resp.read()
+        body=resp.read(32*1024*1024+1)
+        if len(body)>32*1024*1024:raise ValueError("Image exceeds byte limit")
+        return resp.headers.get("Content-Type", ""),body
 
 
 _thumb_failures = {}
@@ -505,9 +552,11 @@ _pillow_attempted = False
 def _ensure_pillow():
     global _pillow_attempted
     try:
-        import PIL.Image  # noqa
-        return True
-    except ImportError:
+        from importlib.metadata import version
+        if version('Pillow') == PILLOW_VERSION:
+            import PIL.Image
+            return PIL.__version__ == PILLOW_VERSION
+    except (ImportError,ModuleNotFoundError):
         pass
     if _pillow_attempted:
         return False
@@ -516,13 +565,13 @@ def _ensure_pillow():
         os.makedirs(PYLIBS, exist_ok=True)
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--quiet",
-             "--only-binary=:all:", "--target", PYLIBS, "pillow==12.0.0"],
+             "--only-binary=:all:", "--target", PYLIBS, "pillow==" + PILLOW_VERSION],
             timeout=120, check=False,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if PYLIBS not in sys.path:
             sys.path.insert(0, PYLIBS)
-        import PIL.Image  # noqa
-        return True
+        import PIL.Image
+        return PIL.__version__ == PILLOW_VERSION
     except Exception:
         return False
 
@@ -534,7 +583,10 @@ def _store_normalized(card_path, detail_path, data):
         return False
     try:
         from PIL import Image, ImageOps
-        img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        raw = Image.open(io.BytesIO(data), formats=("PNG","JPEG"))
+        if raw.width*raw.height>24_000_000 or raw.width<1 or raw.height<1:
+            raise ValueError("Image dimensions exceed limit")
+        img = ImageOps.exif_transpose(raw)
         img.load()
         img = img.convert("RGB")
         if img.width > img.height:
@@ -783,6 +835,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200,state)
             if path == '/api/collection':
                 return self._send(200,{'ok':True,**COLLECTOR.summary()}) if COLLECTOR else self._send(503,{'ok':False,'error':'Collector not initialized.'})
+            if path == '/api/modal-cache':
+                return self._send(200,table_cache().warm_state())
             if path == "/api/library":
                 if COLLECTOR:
                     refresh=parse_qs(urlparse(self.path).query).get('refresh')==['1']
@@ -796,6 +850,8 @@ class Handler(BaseHTTPRequestHandler):
                     thumb_id = int(parts[2])
                 except ValueError:
                     return self._send(400, {"ok": False, "error": "bad table id"})
+                if not known_table(thumb_id):
+                    return self._send(404,{'ok':False,'error':'Table not in saved library.'})
                 card, detail = fetch_thumb(thumb_id)
                 pick = detail if parse_qs(urlparse(self.path).query).get("full") == ["1"] else card
                 if pick is None:
@@ -808,17 +864,18 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError()
                 except ValueError:
                     return self._send(400, {"ok": False, "error": "bad table id"})
-                return self._send(200, safe_history(bridge("GET", f"/api/scorehistory/{game_id}")))
+                if not known_table(game_id):
+                    return self._send(404,{'ok':False,'error':'Table not in saved library.'})
+                return self._send(200, table_cache().fetch(f'scorehistory/{game_id}', lambda:modal_read('scorehistory',game_id)))
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "details":
                 try:
                     game_id = int(parts[2])
-                    if game_id <= 0: raise ValueError()
+                    if not 0 < game_id <= 2147483647: raise ValueError()
                 except ValueError:
                     return self._send(400,{"ok":False,"error":"bad table id"})
-                details = bridge("GET", f"/api/details/{game_id}")
-                allowed = {'author','designedBy','gameDisplayName','gameName','gameRating','gameTheme','gameType','gameVersion','gameYear','manufacturer','numberOfPlayers','numberPlays','category','extraDetails'}
-                clean = {k:safe_value(v) for k,v in details.items() if k in allowed and isinstance(v,(str,int,float,bool))} if isinstance(details,dict) else {}
-                return self._send(200, {"ok": True, "details":clean})
+                if not known_table(game_id):
+                    return self._send(404,{'ok':False,'error':'Table not in saved library.'})
+                return self._send(200, table_cache().fetch(f'details/{game_id}', lambda:modal_read('details',game_id)))
             return self._send(404, {"ok": False, "error": "not found"})
         except urllib.error.HTTPError as e:
             return self._send(e.code, {"ok": False, "error": f"bridge HTTP {e.code}"})
@@ -835,6 +892,46 @@ class Handler(BaseHTTPRequestHandler):
     def _send_text_file(self, name, ctype):
         with open(os.path.join(HERE,name),'rb') as f:
             return self._send_text(200,f.read(),ctype)
+
+    def _cabinet_control(self, path, body):
+        if not _CONTROL_LOCK.acquire(blocking=False):
+            raise AuthError('Another cabinet action is in progress.',409)
+        try:
+            if path == '/api/exit':
+                if set(body) != {'gameId','started'} or type(body.get('gameId')) is not int or not 0<body['gameId']<=2147483647 or not isinstance(body.get('started'),str):
+                    raise AuthError('Reported session identity required.')
+                health=bridge('GET','/health',timeout=5)
+                if health.get('cabinet_reachable') is not True:
+                    raise AuthError('Cabinet unavailable; no exit sent.',503)
+                observed=bridge('GET','/api/status',timeout=5)
+                if observed.get('gameId') != body['gameId'] or public_started(observed.get('started')) != body['started']:
+                    raise AuthError('Reported session changed. Refresh before exiting.',409)
+                result=bridge('POST','/api/exit',body,timeout=25)
+                if not isinstance(result,dict) or result.get('exitRequested') is not True:
+                    raise AuthError('Exit was not confirmed. Check cabinet before retrying.',502)
+                if COLLECTOR:
+                    COLLECTOR.next_status=0
+                    COLLECTOR.changed.set()
+                return self._send(200,{'ok':True,'exitRequested':True,'idleConfirmed':False})
+            try:
+                game_id = int(body.get('gameId'))
+                if game_id<=0 or game_id>2147483647: raise ValueError()
+            except (ValueError,TypeError,OverflowError):
+                raise AuthError('Valid gameId required.')
+            health = bridge('GET','/health')
+            if not isinstance(health,dict) or health.get('cabinet_reachable') is not True:
+                raise AuthError('Cabinet is offline or not detected.',503)
+            status = bridge('GET','/api/status')
+            if health.get('game_playing') or not isinstance(status,dict) or 'gameId' not in status or int(status['gameId'])>0:
+                raise AuthError('Cabinet is busy or its state is unknown.',409)
+            games = bridge('GET','/api/games/json')
+            valid = isinstance(games,list) and any(isinstance(g,dict) and str(g.get('id',g.get('gameId'))) == str(game_id) for g in games)
+            if not valid:
+                raise AuthError('No launchable table was detected for this entry.',404)
+            bridge('POST','/api/play',{'gameId':game_id})
+            return self._send(200,{'ok':True})
+        finally:
+            _CONTROL_LOCK.release()
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -878,11 +975,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise AuthError(str(error))
                 return self._send(200,{'ok':True,**result})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:
@@ -908,7 +1005,7 @@ class Handler(BaseHTTPRequestHandler):
                         if not _ensure_pillow():
                             raise AuthError('Image decoder is unavailable.',503)
                         from PIL import Image
-                        with Image.open(io.BytesIO(data)) as img:
+                        with Image.open(io.BytesIO(data),formats=("PNG","JPEG")) as img:
                             if img.format not in ('PNG','JPEG') or img.width>2048 or img.height>2048 or img.width<1 or img.height<1:
                                 raise ValueError()
                             img.load()
@@ -948,32 +1045,22 @@ class Handler(BaseHTTPRequestHandler):
                 if type(full) is not bool:
                     raise AuthError('Invalid resync mode.')
                 return self._send(202,start_thumb_cache(items,full=full))
-            if path == '/api/play':
-                try:
-                    game_id = int(body.get('gameId'))
-                    if game_id<=0 or game_id>2147483647: raise ValueError()
-                except (ValueError,TypeError,OverflowError):
-                    raise AuthError('Valid gameId required.')
-                health = bridge('GET','/health')
-                if not isinstance(health,dict) or health.get('cabinet_reachable') is not True:
-                    raise AuthError('Cabinet is offline or not detected.',503)
-                status = bridge('GET','/api/status')
-                if health.get('game_playing') or not isinstance(status,dict) or 'gameId' not in status or int(status['gameId'])>0:
-                    raise AuthError('Cabinet is busy or its state is unknown.',409)
-                games = bridge('GET','/api/games/json')
-                valid = isinstance(games,list) and any(isinstance(g,dict) and str(g.get('id',g.get('gameId'))) == str(game_id) for g in games)
-                if not valid:
-                    raise AuthError('No launchable table was detected for this entry.',404)
-                bridge('POST','/api/play',{'gameId':game_id})
-                return self._send(200,{'ok':True})
+            if path == '/api/modal-cache':
+                if set(body) != {'gameIds'} or not isinstance(body['gameIds'],list) or len(body['gameIds'])>1000 or any(type(g) is not int or not 0<g<=2147483647 for g in body['gameIds']):
+                    raise AuthError('Valid table list required (maximum 1000).')
+                if any(not known_table(g) for g in body['gameIds']):
+                    raise AuthError('Preload table not in saved library.',404)
+                return self._send(202,table_cache().warm(list(dict.fromkeys(body['gameIds'])),modal_read,modal_idle))
+            if path in ('/api/play','/api/exit'):
+                return self._cabinet_control(path,body)
             return self._send(404,{'ok':False,'error':'Not found.'})
         except AuthError as e:
             return self._send(e.status,{'ok':False,'error':str(e)})
         except urllib.error.HTTPError as e:
             code = e.code if e.code in (404,409,502,503,504) else 502
-            return self._send(code,{'ok':False,'error':'Cabinet is busy.' if code==409 else 'The cabinet request failed.'})
+            return self._send(code,{'ok':False,'error':('Session changed or another action is in progress. Refresh before exiting.' if code==409 else 'Exit outcome not confirmed. Check cabinet before retrying.') if path=='/api/exit' else ('Cabinet is busy.' if code==409 else 'The cabinet request failed.')})
         except Exception:
-            return self._send(502,{'ok':False,'error':'The request could not be completed.'})
+            return self._send(502,{'ok':False,'error':'Exit outcome not confirmed. Check cabinet before retrying.' if path=='/api/exit' else 'The request could not be completed.'})
 
 
 class LimitedServer(ThreadingHTTPServer):
