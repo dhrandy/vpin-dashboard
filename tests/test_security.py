@@ -88,18 +88,13 @@ class SecurityTests(unittest.TestCase):
             for kind in ['details','scorehistory','thumb']:
                 self.assertEqual(self.request('/api/'+kind+'/123',cookie=self.viewer)[0],404)
             upstream.assert_not_called()
-    def test_exit_exact_session_and_no_retry(self):
-        calls=[]
-        def upstream(method,path,payload=None,**kw):
-            calls.append((method,path))
-            if path=='/health':return {'cabinet_reachable':True}
-            if path=='/api/status':return {'gameId':12,'started':'2026-01-01T00:00:00Z'}
-            raise TimeoutError('sensitive upstream details')
-        with patch.object(s,'bridge',upstream):
-            changed=self.request('/api/exit','POST',{'gameId':13,'started':'2026-01-01T00:00:00+00:00'},self.admin,self.csrf)
-            self.assertEqual(changed[0],409);self.assertNotIn(('POST','/api/exit'),calls)
-            code,_,body=self.request('/api/exit','POST',{'gameId':12,'started':'2026-01-01T00:00:00+00:00'},self.admin,self.csrf)
-            self.assertEqual(code,502);self.assertEqual(calls.count(('POST','/api/exit')),1);self.assertNotIn(b'sensitive',body)
+    def test_exit_disabled_never_touches_upstream(self):
+        with patch.object(s,'bridge',side_effect=AssertionError('Exit must not reach an old bridge')) as upstream:
+            for body in [{}, {'gameId':12,'started':'2026-01-01T00:00:00+00:00'}]:
+                code,_,data=self.request('/api/exit','POST',body,self.admin,self.csrf)
+                self.assertEqual(code,503)
+                self.assertIn(b'physical Exit button',data)
+            upstream.assert_not_called()
     def test_control_serialized(self):
         s._CONTROL_LOCK.acquire()
         try:

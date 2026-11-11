@@ -42,7 +42,7 @@ If you put a reverse proxy in front of the bridge, set `BRIDGE_TRUSTED_PROXIES` 
 - Table cards can show cumulative `X min total` from Studio frontend analytics. This is not the last session duration. Missing values show Time unavailable; each user can hide it in Settings. Requires the current bridge analytics endpoint.
 - Install on phones over HTTPS: Android browsers can offer Install app, and iPhone/iPad Safari supports Share > Add to Home Screen. Settings explains both. The generic app icon/name contain no cabinet details. Full-bleed maskable icons preserve the original ball/flipper art at a readable launcher size. An existing home-screen shortcut may need removal and reinstallation if its launcher keeps the old icon. The service worker is network-only: it creates no cache and does not intercept API, login or page requests. Internet access and sign-in are still required.
 - Sync status lives beside Sync, not as loose header lines. A separate status target opens the desktop popover without starting a Sync; the phone/tablet menu shows the panel below Sync. The indicator changes shape/color for unavailable items, active jobs and completion. Escape or an outside click closes the desktop popover.
-- Compact header lights use different shapes for idle, busy, offline, unknown and stale, with a Status key in Settings and accessible labels. Admin Exit table appears at the top only while Studio reports an active table, and requires confirmation, and can force-close the table and frontend, losing an unsaved game. Both dashboard and bridge revalidate the exact reported session and serialize Exit/Play. An accepted exit is not proof every process stopped; the dashboard waits for fresh reported status. It never auto-launches another table or retries an uncertain exit. Both containers need the matching update.
+- Compact header lights use different shapes for idle, busy, offline, unknown and stale, with a Status key in Settings and accessible labels. Remote Exit is currently hidden and refused server-side, including requests from old browser tabs. It never calls the legacy bridge terminate action. Use the physical cabinet Exit button.
 - Tap a playfield in the details dialog to enlarge the existing 960px-wide cached detail image. Tap the image, the top-right X, or Esc to return. Table details also have a matching top-right X and a bottom Close button. No additional cabinet read or image copy is needed.
 - "No B2S or PUP" means the export explicitly reports neither a backglass nor a PUP pack. A reported PUP suppresses the flag. Unknown fields are not treated as absent. Details explain this is not proof of a launch error.
 - Phone/tablet hamburger menu and desktop sidebar. A round back-to-top arrow appears after scrolling down the Library, avoids Play buttons, and respects reduced-motion settings. Each user can turn it off in Settings.
@@ -331,3 +331,12 @@ phones, separately from the sync warning icon. Settings > Display > Show cabinet
 instructions icon hides that shortcut for your account. Missing or empty
 instructions show an empty page message rather than making the shortcut vanish.
 The page is cabinet-wide; it is not a collection of per-table rule sheets.
+
+
+## Remote Exit requirements
+
+Remote Exit is disabled until a cabinet-side Escape sender is available. The current Studio frontend terminate endpoint closes the frontend and emulator processes; it is not a single Exit-button press and is never a fallback.
+
+A future Escape sender must run in the active Windows cabinet user session, send one Escape down/up pair, and use authenticated access without asking the user to enter an API key. The existing Linux bridge cannot inject Windows keyboard input. Installing or running a cabinet helper is a separate setup step; this release does not install one or claim to provide remote Escape.
+
+Escape can conflict with VPX's own exit dialog. PinUP Popper recommends keeping its Exit Emulators binding distinct from the emulator's own Exit binding. A single Escape press may open a dialog instead of returning to the table menu; that must be checked on the cabinet. No real-cabinet test is performed by the fixture tests.

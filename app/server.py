@@ -954,21 +954,8 @@ class Handler(BaseHTTPRequestHandler):
             raise AuthError('Another cabinet action is in progress.',409)
         try:
             if path == '/api/exit':
-                if set(body) != {'gameId','started'} or type(body.get('gameId')) is not int or not 0<body['gameId']<=2147483647 or not isinstance(body.get('started'),str):
-                    raise AuthError('Reported session identity required.')
-                health=bridge('GET','/health',timeout=5)
-                if health.get('cabinet_reachable') is not True:
-                    raise AuthError('Cabinet unavailable; no exit sent.',503)
-                observed=bridge('GET','/api/status',timeout=5)
-                if observed.get('gameId') != body['gameId'] or public_started(observed.get('started')) != body['started']:
-                    raise AuthError('Reported session changed. Refresh before exiting.',409)
-                result=bridge('POST','/api/exit',body,timeout=25)
-                if not isinstance(result,dict) or result.get('exitRequested') is not True:
-                    raise AuthError('Exit was not confirmed. Check cabinet before retrying.',502)
-                if COLLECTOR:
-                    COLLECTOR.next_status=0
-                    COLLECTOR.changed.set()
-                return self._send(200,{'ok':True,'exitRequested':True,'idleConfirmed':False})
+                # Never forward to an older bridge's force-terminate endpoint.
+                raise AuthError('Remote Exit is unavailable until a cabinet Escape sender is installed. Use the physical Exit button.',503)
             try:
                 game_id = int(body.get('gameId'))
                 if game_id<=0 or game_id>2147483647: raise ValueError()

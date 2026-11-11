@@ -276,7 +276,7 @@ function renderStatus() {
   label.textContent=labels[state];
   for(const light of [dot,$('mobile-status')]){light.className='dot '+(light.id==='mobile-status'?'mobile-status ':'')+'light-'+state;light.style.background='';light.style.borderRadius='';light.title=labels[state]+'. See Status key in Settings.';light.setAttribute('aria-label',labels[state]);light.tabIndex=0;}
   const pill=dot.closest('.pill');pill.title=dot.title;pill.setAttribute('aria-label',labels[state]);
-  const exit=$('exit-btn');exit.hidden=CURRENT_USER?.role!=='admin'||!STATUS.gamePlaying;exit.disabled=EXIT_PENDING||!STATUS.gamePlaying||!STATUS.started||!STATUS.gameId||STATUS.state!=='online'||!!stale;exit.title=exit.disabled?'Exit needs a fresh online active session. Refresh status if needed.':'Exit table / frontend - confirmation required';
+  const exit=$('exit-btn');exit.hidden=true;exit.disabled=true;exit.title='Remote Exit unavailable. Use the physical Exit button.';
   const np = $("now-playing");
   if (STATUS.gamePlaying) {
     np.style.display="flex";np.innerHTML="";
@@ -606,17 +606,6 @@ async function loadModalData(kind,gameId){
 }
 function loadScoreHistory(gameId){return loadModalData('scorehistory',gameId);}
 
-async function exitTable(){
-  if(CURRENT_USER?.role!=='admin'||EXIT_PENDING||$('exit-btn').disabled)return;
-  const session={gameId:STATUS.gameId,started:STATUS.started};
-  const name=DATA.tables.find(t=>t.gameId===session.gameId)?.name||'the reported table';
-  if(!confirm('Exit '+name+' and close the cabinet frontend? This can force-close the table and lose an unsaved game. It does not launch another table.'))return;
-  EXIT_PENDING=true;renderStatus();
-  try{await apiPost('/api/exit',session);showBanner('Exit requested. Checking reported cabinet status; this is not proof that every process closed.');await loadStatus();}
-  catch(error){showBanner(error.message);await loadStatus();}
-  finally{EXIT_PENDING=false;renderStatus();}
-}
-$('exit-btn').addEventListener('click',exitTable);
 $('account-toggle').addEventListener('click',()=>{const open=$('account-options').hidden;$('account-options').hidden=!open;$('account-toggle').setAttribute('aria-expanded',String(open));});
 document.addEventListener('click',event=>{if(!event.target.closest('.account-menu')){$('account-options').hidden=true;$('account-toggle').setAttribute('aria-expanded','false');}});
 async function play(gameId) {
