@@ -55,12 +55,21 @@ class AuthStore:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_play_time INTEGER NOT NULL DEFAULT 1')
             if 'show_timer' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_timer INTEGER NOT NULL DEFAULT 1')
+            if 'show_instructions' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_instructions INTEGER NOT NULL DEFAULT 1')
+            if 'show_vpw' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN show_vpw INTEGER NOT NULL DEFAULT 0')
+            if 'hide_empty' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
+                db.execute('ALTER TABLE preferences ADD COLUMN hide_empty INTEGER NOT NULL DEFAULT 1')
             if 'back_to_top' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN back_to_top INTEGER NOT NULL DEFAULT 1')
             if 'show_hidden' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_hidden INTEGER NOT NULL DEFAULT 0')
             if 'show_pick' not in {row[1] for row in db.execute('PRAGMA table_info(preferences)')}:
                 db.execute('ALTER TABLE preferences ADD COLUMN show_pick INTEGER NOT NULL DEFAULT 1')
+        with self.db() as db:
+            from game_night import init
+            init(db)
         os.chmod(self.path, 0o600)
         if self.needs_setup() and not os.path.exists(self.setup_path):
             fd = os.open(self.setup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -225,12 +234,12 @@ class AuthStore:
 
     def preferences(self,user_id):
         with self.db() as db:
-            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick FROM preferences WHERE user_id=?',(user_id,)).fetchone()
-            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True,'showHidden':bool(row[5]) if row else False,'showPick':bool(row[6]) if row else True}
+            row=db.execute('SELECT colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick,hide_empty,show_vpw,show_instructions FROM preferences WHERE user_id=?',(user_id,)).fetchone()
+            return {'colorblind':bool(row[0]) if row else False,'showTimer':bool(row[1]) if row else True,'showPlayTime':bool(row[2]) if row else True,'statusDetails':bool(row[3]) if row else False,'backToTop':bool(row[4]) if row else True,'showHidden':bool(row[5]) if row else False,'showPick':bool(row[6]) if row else True,'hideEmptyPlaylists':bool(row[7]) if row else True,'showVpw':bool(row[8]) if row else False,'showInstructions':bool(row[9]) if row else True}
 
-    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True,show_hidden=False,show_pick=True):
+    def set_preferences(self,user_id,colorblind,show_timer=True,show_play_time=True,status_details=False,back_to_top=True,show_hidden=False,show_pick=True,hide_empty=True,show_vpw=False,show_instructions=True):
         with self.lock,self.db() as db:
-            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top,show_hidden=excluded.show_hidden,show_pick=excluded.show_pick',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top),int(show_hidden),int(show_pick)))
+            db.execute('INSERT INTO preferences (user_id,colorblind,show_timer,show_play_time,status_details,back_to_top,show_hidden,show_pick,hide_empty,show_vpw,show_instructions) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET colorblind=excluded.colorblind,show_timer=excluded.show_timer,show_play_time=excluded.show_play_time,status_details=excluded.status_details,back_to_top=excluded.back_to_top,show_hidden=excluded.show_hidden,show_pick=excluded.show_pick,hide_empty=excluded.hide_empty,show_vpw=excluded.show_vpw,show_instructions=excluded.show_instructions',(user_id,int(colorblind),int(show_timer),int(show_play_time),int(status_details),int(back_to_top),int(show_hidden),int(show_pick),int(hide_empty),int(show_vpw),int(show_instructions)))
         return self.preferences(user_id)
 
     def favourites(self, user_id):

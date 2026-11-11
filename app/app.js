@@ -26,6 +26,9 @@ const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least playe
 let HIDDEN_BUSY=false;
 let SHOW_HIDDEN=false;
 let SHOW_PICK=true;
+let HIDE_EMPTY_PLAYLISTS=true;
+let SHOW_VPW=false;
+let SHOW_INSTRUCTIONS=true;
 let SHOW_TIMER=true;
 let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
@@ -44,7 +47,7 @@ function heartButton(t){
   return `<button type="button" class="heart${saved?' saved':''}" data-heart="${t.gameId}" aria-pressed="${saved}" aria-label="${esc(label)}" title="${esc(label)}" ${FAVOURITE_BUSY?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="${saved?'currentColor':'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>`;
 }
 function bindHearts(root){root.querySelectorAll('[data-heart]').forEach(b=>b.addEventListener('click',()=>toggleFavourite(Number(b.dataset.heart))));}
-function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;SHOW_HIDDEN=data.showHidden===true;$('show-hidden-setting').checked=SHOW_HIDDEN;SHOW_PICK=data.showPick!==false;$('pick-setting').checked=SHOW_PICK;$('pick-btn').hidden=!SHOW_PICK;renderStatus();renderLibrary();}
+function applyPreferences(data){document.documentElement.dataset.colorblind=String(data.colorblind);$('colorblind-setting').checked=data.colorblind;SHOW_TIMER=data.showTimer!==false;$('timer-setting').checked=SHOW_TIMER;SHOW_PLAY_TIME=data.showPlayTime!==false;$('playtime-setting').checked=SHOW_PLAY_TIME;BACK_TO_TOP=data.backToTop!==false;$('back-top-setting').checked=BACK_TO_TOP;updateBackToTop();STATUS_DETAILS=data.statusDetails===true;$('status-details-setting').checked=STATUS_DETAILS;SHOW_HIDDEN=data.showHidden===true;$('show-hidden-setting').checked=SHOW_HIDDEN;SHOW_PICK=data.showPick!==false;$('pick-setting').checked=SHOW_PICK;$('pick-btn').hidden=!SHOW_PICK;SHOW_INSTRUCTIONS=data.showInstructions!==false;$('instructions-setting').checked=SHOW_INSTRUCTIONS;$('tab-instructions').hidden=!SHOW_INSTRUCTIONS;if(!SHOW_INSTRUCTIONS&&$('tab-instructions').getAttribute('aria-pressed')==='true')switchTab('library');SHOW_VPW=data.showVpw===true;$('vpw-setting').checked=SHOW_VPW;HIDE_EMPTY_PLAYLISTS=data.hideEmptyPlaylists!==false;$('hide-empty-playlists-setting').checked=HIDE_EMPTY_PLAYLISTS;renderStatus();renderLibrary();}
 async function loadPreferences(){const r=await fetch('/api/preferences');if(!r.ok)throw new Error('Settings could not be loaded.');applyPreferences(await r.json());}
 $('tab-settings').addEventListener('click',()=>switchTab('settings'));
 $('colorblind-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{colorblind:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
@@ -54,6 +57,9 @@ $('status-details-setting').addEventListener('change',async e=>{const checkbox=e
 $('back-top-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{backToTop:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('show-hidden-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showHidden:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 $('pick-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showPick:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('hide-empty-playlists-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{hideEmptyPlaylists:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('vpw-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showVpw:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
+$('instructions-setting').addEventListener('change',async e=>{const checkbox=e.target;checkbox.disabled=true;try{applyPreferences(await apiPost('/api/preferences',{showInstructions:checkbox.checked}));$('preference-message').textContent='Saved to your account.';}catch(error){checkbox.checked=!checkbox.checked;$('preference-message').textContent=error.message;}finally{checkbox.disabled=false;}});
 function elapsedLabel(started,now=Date.now()){
   if(typeof started!=='string')return 'Time unavailable';
   const start=Date.parse(started);if(!Number.isFinite(start)||start>now)return 'Time unavailable';
@@ -221,10 +227,11 @@ function renderSidebar(M) {
   html += btn("with-scores", "With scores", M.countFor("with-scores"));
   html += btn("no-scores", "No scores yet", M.countFor("no-scores"));
   html += `<p class="side-title">Smart playlists</p>`;
-  for (const [key, label] of SMART) html += btn(key, label, M.countFor(key));
-  if (DATA.playlists.length) {
+  for (const [key, label] of SMART) { if(key === "smart:vpw" && !SHOW_VPW) continue; html += btn(key, label, M.countFor(key)); }
+  const playlists = DATA.playlists.filter((p) => !HIDE_EMPTY_PLAYLISTS || (p.gameIds || []).length > 0);
+  if (playlists.length) {
     html += `<p class="side-title">Your playlists</p>`;
-    for (const p of DATA.playlists) html += btn("playlist:" + p.name, p.name, (p.gameIds || []).length);
+    for (const p of playlists) html += btn("playlist:" + p.name, p.name, (p.gameIds || []).length);
   }
   const makers = new Map();
   const decades = new Map();
@@ -317,7 +324,7 @@ function showPick(t){
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
     <p class="muted">${esc(tableMeta(t))}</p>
     <div class="pick-actions">
-      ${canLaunch(t) ? `<button class="accountbtn" id="pick-play" type="button">Play on the cabinet</button>` : ""}
+      ${canLaunch(t) ? `<button class="play" id="pick-play" type="button">Play on the cabinet</button>` : ""}
       <button class="accountbtn" id="pick-again" type="button">Try another</button>
     </div>`;
   d.showModal();
@@ -331,6 +338,7 @@ $("pick-btn").addEventListener("click", pickTable);
 function renderLibrary() {
   const M = buildMatcher();
   renderSidebar(M);
+  if(typeof renderGameNight === "function")renderGameNight();
   const best = bestByTable();
   const q = $("search").value.trim().toLowerCase();
   const sort = $("sort").value;
@@ -671,10 +679,11 @@ async function performLoad(manual,refresh=false) {
   renderStatsSectionsPanel();
   renderLibrary(); renderStats();
   await loadStatus();
+  renderGameNight();
   updateModalCache();
   if(!await loadInstructions())readIssues.push('Cabinet instructions unavailable');
   if(error)readIssues.unshift('Library refresh unavailable');
-  if(readIssues.length){note.textContent=readIssues.join(' · ')+'. Keeping saved data; retrying when connected.';note.classList.remove('err');}else note.classList.remove('err');
+  if(readIssues.length){const issueMsg=readIssues.join(' · ')+'. Keeping saved data; retrying when connected.';note.innerHTML=`<span class="note-warn" role="img" aria-label="${esc(issueMsg)}" title="${esc(issueMsg)}"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5 15 14H1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.8" r="0.9" fill="currentColor"/></svg></span>`;note.classList.remove('err');}else note.classList.remove('err');
   if (manual) {
     btn.disabled = false; btn.classList.remove("syncing"); label.textContent = "Sync";
     if (error || readIssues.length) {
@@ -743,6 +752,8 @@ $("sync-btn").addEventListener("click", () => load(true));
 $("tab-library").addEventListener("click", () => switchTab("library"));
 $("tab-stats").addEventListener("click", () => switchTab("stats"));
 function switchTab(which) {
+  if(which==="night" && (!NIGHT_STATE || !NIGHT_STATE.enabled))return;
+  $("view-night").hidden=which!=="night";$("tab-night").setAttribute("aria-pressed",String(which==="night"));
   requestAnimationFrame(updateBackToTop);
   if(which==="instructions" && $("tab-instructions").hidden)return;
   setMenu(false);
@@ -780,13 +791,15 @@ function instructionsHTML(text) {
   flush();if(code!==null)output.push('<pre><code>'+esc(code.join('\n'))+'</code></pre>');return output.join('');
 }
 async function loadInstructions(){
-  let available=false;
+  $('instructions-admin-note').hidden=CURRENT_USER?.role!=='admin';
   try{const response=await fetch('/api/instructions');const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'Instructions could not be loaded.');
-    available=!!data.text.trim();$('instructions-content').innerHTML=available?instructionsHTML(data.text):'';
-  }catch(e){return false;}
-  $('tab-instructions').hidden=!available;
-  if(!available){const selected=$('tab-instructions').getAttribute('aria-pressed')==='true';$('view-instructions').hidden=true;if(selected)switchTab('library');}
-  $('instructions-admin-note').hidden=CURRENT_USER?.role!=='admin';return true;
+    const available=typeof data.text==='string'&&!!data.text.trim();
+    $('instructions-content').innerHTML=available?instructionsHTML(data.text):'<p class="muted">No cabinet instructions have been added yet.</p>';
+    return true;
+  }catch(e){
+    if(!$('instructions-content').textContent.trim())$('instructions-content').innerHTML='<p class="muted">Cabinet instructions could not be loaded. Use Refresh to retry.</p>';
+    return false;
+  }
 }
 $('tab-instructions').addEventListener('click',()=>switchTab('instructions'));
 
@@ -859,9 +872,11 @@ $('branding-form').addEventListener('submit',async e=>{
   } catch(e) {$('admin-message').textContent=e.message;} finally{button.disabled=false;}
 });
 (async()=>{
+  if(document.readyState==="loading")await new Promise(resolve=>document.addEventListener("DOMContentLoaded",resolve,{once:true}));
   const state=await fetch('/api/auth/status').then(r=>r.json());if(!state.user){location.replace('/login');return;}
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
   $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('sync-tools').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
+  try{await loadNight();}catch(e){nightError(e);}
   await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
 })().catch(error=>showBanner(error.message||'Dashboard could not be loaded. Refresh to try again.'));
 

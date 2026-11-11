@@ -843,8 +843,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_html(os.path.join(HERE, "index.html"))
         if not self._require(admin=path in ('/api/admin/users','/api/collection')):
             return
-        if path in ('/app.js','/pwa.js'):
+        if path in ('/app.js','/pwa.js','/game-night.js'):
             return self._send_text_file(path[1:],'application/javascript')
+        if path == '/api/game-night':
+            import game_night as gn
+            return self._send(200, {'ok':True, **gn.read(auth_store(), self._session()['id'])})
+        if path == '/api/night-themes':
+            import game_night as gn
+            tables = (COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
+            themes = gn.custom(auth_store())
+            admin = self._session()['role'] == 'admin'
+            return self._send(200, {'ok':True, 'themes':[
+                {'id':t['id'], **gn.resolve(t, tables), **({'source':t['source'], 'revision':t['revision']} if admin else {})}
+                for t in themes]})
         if path == '/api/preferences':
             return self._send(200,{'ok':True,**auth_store().preferences(self._session()['id'])})
         if path == '/api/favourites':
@@ -990,7 +1001,7 @@ class Handler(BaseHTTPRequestHandler):
                 store = auth_store()
                 cookie = store.setup(body,self.client_address[0]) if path.endswith('/setup') else store.login(body.get('username'),body.get('password'),self.client_address[0])
                 return self._auth_reply(cookie)
-            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/hidden','/api/stats-sections','/api/preferences'))
+            session = self._require(admin=path not in ('/api/auth/logout','/api/favourites','/api/hidden','/api/stats-sections','/api/preferences','/api/game-night'))
             if not session:
                 return
             if not self._csrf(session) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
@@ -1019,12 +1030,30 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as error:
                     raise AuthError(str(error))
                 return self._send(200,{'ok':True,**result})
+            if path == '/api/game-night':
+                import game_night as gn
+                store=auth_store();store.personal_write_throttle(session['id'])
+                if body.get('action') == 'new':
+                    tables=(COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
+                    allowed={t['gameId'] for t in tables} - set(store.hidden(session['id']))
+                    ids=body.get('ids')
+                    if not isinstance(ids,list) or any(type(i) is not int or i not in allowed for i in ids):
+                        raise AuthError('Choose tables currently in your visible library.')
+                return self._send(200, {'ok':True, **gn.update(store,session['id'],body)})
+            if path == '/api/night-themes':
+                import game_night as gn
+                store=auth_store();store.personal_write_throttle(session['id'])
+                if body.get('action') == 'delete':
+                    gn.delete_custom(store,body)
+                    return self._send(200, {'ok':True})
+                tables=(COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
+                return self._send(200, {'ok':True, **gn.save_custom(store,body,tables)})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden','showPick'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden','showPick','hideEmptyPlaylists','showVpw','showInstructions'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'],current['showPick'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'],current['showPick'],current['hideEmptyPlaylists'],current['showVpw'],current['showInstructions'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:

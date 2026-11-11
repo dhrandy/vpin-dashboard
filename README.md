@@ -247,3 +247,87 @@ Copyright dhrandy. All rights reserved. No license is granted.
 ### Upstream request boundary
 
 The dashboard does not follow redirects from the configured bridge URL. Use the bridge's direct private base address, not a redirecting URL. This prevents forwarding its API key or redirecting a cabinet action to another destination. An in-flight sign-in is rejected if the account password or active state changes before its session is created. These are local regression-tested protections, not a live server or network audit.
+
+
+### Game night
+
+Game night makes a random list of distinct tables from your own library.
+Choose a Max tables cap of 10, 15 or 20 (default 10). The cap is saved per
+account and only affects the next Start night; changing it does not replace
+a current list or clear its checks.
+Choose a theme on the left (a dropdown on phones), then Start night. The six
+largest manufacturer pools appear as individual themes, computed from visible
+tables. Known maker aliases are combined; Original and unknown makers are
+excluded. Count ties break alphabetically. Originals night is an additional
+theme using explicit Original/Originals maker values, not unknown manufacturers. Check
+items manually after playing. Launching a table does not check it off.
+Checks and the fixed list are saved per account on this server, across devices.
+There is no midnight reset. Start new night asks before replacing your list.
+Concurrent edits are revision-checked instead of silently overwriting a newer list.
+Admins can launch under the usual online/idle rules. Viewers can keep their own
+checklists but cannot launch. Hidden tables are excluded even when Library is
+set to show hidden items. Missing or newly hidden tables keep a placeholder in
+an existing night until you start another.
+
+Settings lets each account hide the page, individual themes, and import tools.
+An empty theme shows 0 tables and cannot start. Pools smaller than your cap stay
+smaller; no repeats or off-theme filler. Decades use known release years,
+Old school means before 1990. Overlooked gems draws randomly from the lowest
+known play counts: a candidate window twice your cap, expanded to include ties
+at the boundary. Fresh arrivals draws randomly from the newest dated tables,
+with a candidate window up to twice your cap. No score yet means no score saved here,
+not never played. Score chase shows the current saved best; it is not a new
+score tracker. Top-100 night draws randomly from the existing owned-table matches.
+Random night gives all eligible tables an equal chance.
+
+Genre themes do not guess from titles. They use cabinet playlists with these
+names (case and punctuation ignored): Game shows / Game show; Movie / Movies /
+Movie night; TV / Television / TV night; Sci-fi / Science fiction / Sci-fi night;
+Sports / Sports night; Music / Music night; Horror / Horror night. Without a
+matching playlist they remain empty. Custom imported themes are separate entries.
+
+#### Import a theme in Settings
+
+Admins can upload a UTF-8 text or JSON file or paste a list in Settings > Game
+night > Imported themes. Preview shows matched, not found, ambiguous, or duplicate
+matches before Save theme for everyone. Imports are shared with other accounts
+on this server. Only admins can edit or delete them. Deletion does not erase
+anyone's existing night. Limits: 32 KB per import, 100 titles per theme, 20 imported
+themes. Names are plain text; HTML and control characters are rejected.
+
+Plain text uses the first nonempty line for the theme name:
+
+```text
+Game shows
+Wheel of Fortune
+The Price Is Right
+```
+
+JSON can include maker and year to disambiguate titles:
+
+```json
+{"name":"Game shows","tables":[{"name":"Wheel of Fortune","maker":"Stern","year":2007}]}
+```
+
+Names are normalized using the same helpers and token-containment approach as
+the Top-100 matcher, with a stricter ambiguity rule: exactly one candidate must
+remain. Optional maker and year narrow the candidates. No first-match guessing.
+The original list is retained for editing and re-matched when loaded, so an
+unmatched title can become available after it is added to the cabinet. The
+examples above are format examples, not a claim that a table is in your library.
+
+Prompt you can give an AI outside the app:
+
+> Make a pinball theme list named [theme]. Return only JSON with name and tables.
+> Each table needs name and, if known, maker and year. Use at most 100 titles.
+> Do not add HTML, instructions or commentary. I will match the list to my own
+> cabinet library; do not claim I own any title.
+
+There is no AI service, external request, API key, or automatic classification
+inside Game night. Importing a list never launches a table or changes the cabinet.
+
+Cabinet instructions open from the book icon in the top bar, on desktop and
+phones, separately from the sync warning icon. Settings > Display > Show cabinet
+instructions icon hides that shortcut for your account. Missing or empty
+instructions show an empty page message rather than making the shortcut vanish.
+The page is cabinet-wide; it is not a collection of per-table rule sheets.
