@@ -753,7 +753,7 @@ function switchTab(which) {
   $("view-stats").style.display = which === "stats" ? "block" : "none";
   $("view-admin").hidden = which !== "admin" || CURRENT_USER?.role !== "admin";
   $("tab-admin").setAttribute("aria-pressed",String(which === "admin"));
-  if (which === "admin" && CURRENT_USER?.role === "admin") { loadUsers(); updateImageCache(); loadCollection(); }
+  if (which === "admin" && CURRENT_USER?.role === "admin") { loadUsers(); updateImageCache(); loadCollection(); loadAgentKeys(); }
   $("tab-library").setAttribute("aria-pressed", String(which === "library"));
   $("tab-stats").setAttribute("aria-pressed", String(which === "stats"));
   if (which === "stats") renderStats();
@@ -817,6 +817,20 @@ async function loadUsers() {
     $('user-list').querySelectorAll('[data-reset]').forEach(b=>b.addEventListener('click',()=>{$('reset-password').hidden=false;$('reset-password').dataset.userId=b.dataset.reset;$('reset-title').textContent='Reset password: '+b.dataset.username;$('reset-value').focus();}));
   } catch(e) { $('admin-message').textContent=e.message; }
 }
+async function loadAgentKeys() {
+  try {
+    const data=await fetch('/api/admin/agent-keys').then(r=>r.json());
+    const date=v=>v?new Date(v*1000).toLocaleString():'never';
+    $('agent-key-list').innerHTML=data.keys&&data.keys.length?data.keys.map(k=>`<div class="useritem"><strong>${esc(k.label)}</strong><span class="role">${k.revoked?'revoked':'active'} · created ${date(k.created)} · last used ${date(k.last_used)}</span><div class="useractions">${k.revoked?'':`<button class="accountbtn" data-revoke-key="${k.id}">Revoke</button>`}</div></div>`).join(''):'<p class="muted">No agent keys yet.</p>';
+    $('agent-key-list').querySelectorAll('[data-revoke-key]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Revoke this agent key? It stops working immediately.'))return;try{await apiPost('/api/admin/agent-keys/'+b.dataset.revokeKey,{revoked:true});$('admin-message').textContent='Agent key revoked.';await loadAgentKeys();}catch(e){$('admin-message').textContent=e.message;}}));
+  } catch(e) { $('admin-message').textContent=e.message; }
+}
+$('create-agent-key').addEventListener('submit',async e=>{
+  e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;
+  try{const result=await apiPost('/api/admin/agent-keys',{label:$('agent-key-label').value});e.target.reset();$('agent-key-once').hidden=false;$('agent-key-value').value=result.key;$('admin-message').textContent='Agent key created. Copy it now; it is never shown again.';await loadAgentKeys();}
+  catch(e2){$('admin-message').textContent=e2.message;}finally{button.disabled=false;}
+});
+$('agent-key-copy').addEventListener('click',async()=>{const input=$('agent-key-value');input.focus();input.select();try{await navigator.clipboard.writeText(input.value);$('admin-message').textContent='Key copied.';}catch(e){document.execCommand('copy');}});
 async function changeUser(id,body) {
   try { await apiPost('/api/admin/users/'+id,body); $('admin-message').textContent='User updated. Existing sessions have been signed out.'; await loadUsers(); }
   catch(e) { $('admin-message').textContent=e.message; }

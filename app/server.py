@@ -833,6 +833,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/auth/status':
             session = self._session()
             return self._send(200, {'ok':True,'setupRequired':auth_store().needs_setup(),'user':{k:session[k] for k in ('id','username','role','csrf')} if session else None})
+        if self.headers.get('X-Api-Key'):
+            return self._agent_get(path)
         if path in ("/", "/index.html"):
             if not self._session():
                 self.send_response(303)
@@ -841,7 +843,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             return self._send_html(os.path.join(HERE, "index.html"))
-        if not self._require(admin=path in ('/api/admin/users','/api/collection')):
+        if not self._require(admin=path in ('/api/admin/users','/api/collection','/api/admin/agent-keys')):
             return
         if path in ('/app.js','/pwa.js','/game-night.js'):
             return self._send_text_file(path[1:],'application/javascript')
@@ -875,6 +877,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(os.path.join(HERE,'brand-default.png'),'image/png')
         if path == '/api/admin/users':
             return self._send(200,{'ok':True,'users':auth_store().list_users()})
+        if path == '/api/admin/agent-keys':
+            return self._send(200,{'ok':True,'keys':auth_store().list_agent_keys()})
         try:
             if path == "/api/cache-thumbs":
                 with _cache_state_lock:
@@ -976,9 +980,117 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             _CONTROL_LOCK.release()
 
+    def _agent_get(self, path):
+        # Read-only agent key access: saved library (with snapshot age),
+        # cabinet status and game-night themes. No other reads, no writes.
+        try:
+            auth_store().agent_key(self.headers.get('X-Api-Key'), self.client_address[0])
+        except AuthError as e:
+            return self._send(e.status, {'ok':False,'error':str(e)})
+        try:
+            if path == '/api/library':
+                if COLLECTOR:
+                    lib=COLLECTOR.library()
+                    if isinstance(lib,dict):
+                        lib=dict(lib)
+                        try: lib['playsByWeek']=COLLECTOR.plays_by_week()
+                        except Exception: lib['playsByWeek']=[]
+                        try: lib['playsByDay']=COLLECTOR.plays_by_day()
+                        except Exception: lib['playsByDay']=[]
+                    return self._send(200,lib)
+                return self._send(200, safe_value(library_payload()))
+            if path == '/api/status':
+                return self._send(200,COLLECTOR.status() if COLLECTOR else current_status())
+            if path == '/api/night-themes':
+                import game_night as gn
+                tables = (COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
+                return self._send(200, {'ok':True, 'themes':[{'id':t['id'], **gn.resolve(t, tables)} for t in gn.custom(auth_store())]})
+            return self._send(404, {'ok':False,'error':'not found'})
+        except urllib.error.HTTPError as e:
+            return self._send(e.code, {'ok':False, 'error': f'bridge HTTP {e.code}'})
+        except Exception:
+            return self._send(502, {'ok':False, 'error':'The cabinet service is unavailable.'})
+
+    def _agent_post(self, path):
+        # Agent keys may only create/rename playlists and add or remove
+        # their tables. No launch, exit, settings, hide or user changes.
+        try:
+            key = auth_store().agent_key(self.headers.get('X-Api-Key'), self.client_address[0])
+            if not key:
+                raise AuthError('Agent key required.',401)
+            body = self._body()
+            auth_store().agent_write_throttle(key['id'])
+            if path == '/api/agent/playlists':
+                return self._send(200, self._playlist_save(-1, body))
+            match = re.fullmatch(r'/api/agent/playlists/([0-9]+)', path)
+            if match:
+                return self._send(200, self._playlist_save(int(match.group(1)), body))
+            match = re.fullmatch(r'/api/agent/playlists/([0-9]+)/tables', path)
+            if match:
+                return self._send(200, self._playlist_table(int(match.group(1)), body))
+            return self._send(404, {'ok':False,'error':'not found'})
+        except AuthError as e:
+            return self._send(e.status, {'ok':False,'error':str(e)})
+        except urllib.error.HTTPError as e:
+            code = e.code if e.code in (404,409,502,503,504) else 502
+            return self._send(code, {'ok':False,'error':'The cabinet request failed.'})
+        except Exception:
+            return self._send(502, {'ok':False,'error':'The request could not be completed.'})
+
+    @staticmethod
+    def _playlist_name(body):
+        if set(body) != {'name'}:
+            raise AuthError('Provide only a playlist name.')
+        name = body['name']
+        if not isinstance(name,str) or not 1 <= len(name.strip()) <= 60 or any(ord(c)<32 for c in name):
+            raise AuthError('Use a playlist name of 1-60 characters.')
+        return name.strip()
+
+    @staticmethod
+    def _known_playlist(playlist_id):
+        if not COLLECTOR:
+            raise AuthError('Collector not initialized.',503)
+        playlists = COLLECTOR.library().get('playlists', [])
+        if not any(isinstance(p,dict) and p.get('id') == playlist_id for p in playlists):
+            raise AuthError('Playlist not in saved library. Sync, then try again.',404)
+
+    def _playlist_save(self, playlist_id, body):
+        name = self._playlist_name(body)
+        if playlist_id != -1:
+            self._known_playlist(playlist_id)
+        result = bridge('POST','/api/playlists/save',{'id':playlist_id,'name':name},timeout=30)
+        self._agent_refreshed()
+        saved = result.get('result') if isinstance(result,dict) else None
+        playlist = {'id':saved.get('id'),'name':saved.get('name')} if isinstance(saved,dict) else None
+        return {'ok':True,'playlist':playlist}
+
+    def _playlist_table(self, playlist_id, body):
+        if set(body) != {'gameId','action'} or body.get('action') not in ('add','remove') or type(body.get('gameId')) is not int or not 0 < body['gameId'] <= 2147483647:
+            raise AuthError('Provide a gameId and an action of add or remove.')
+        self._known_playlist(playlist_id)
+        if not known_table(body['gameId']):
+            raise AuthError('Table not in saved library.',404)
+        if body['action'] == 'add':
+            bridge('POST', f"/api/playlists/{playlist_id}/{body['gameId']}", timeout=30)
+        else:
+            bridge('DELETE', f"/api/playlists/{playlist_id}/{body['gameId']}", timeout=30)
+        self._agent_refreshed()
+        return {'ok':True}
+
+    @staticmethod
+    def _agent_refreshed():
+        # Best effort: let the saved library reflect playlist changes.
+        try:
+            if COLLECTOR:
+                COLLECTOR.step(manual=True)
+        except Exception:
+            pass
+
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path.startswith('/api/agent/'):
+                return self._agent_post(path)
             # A non-simple custom header plus application/json prevents login
             # and bootstrap CSRF. No cross-origin CORS responses are issued.
             if path in ('/api/auth/login','/api/auth/setup'):
@@ -1109,6 +1221,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/admin/users':
                 auth_store().create_user(body)
                 return self._send(201,{'ok':True})
+            if path == '/api/admin/agent-keys':
+                key_id, key = auth_store().create_agent_key(body.get('label'))
+                return self._send(201,{'ok':True,'id':key_id,'key':key})
+            if re.fullmatch(r'/api/admin/agent-keys/[0-9]+',path):
+                if set(body) != {'revoked'} or body.get('revoked') is not True:
+                    raise AuthError('Provide revoked true to revoke a key.')
+                auth_store().revoke_agent_key(int(path.rsplit('/',1)[1]))
+                return self._send(200,{'ok':True})
             if re.fullmatch(r'/api/admin/users/[0-9]+',path):
                 auth_store().update_user(int(path.rsplit('/',1)[1]),body,session)
                 return self._send(200,{'ok':True})

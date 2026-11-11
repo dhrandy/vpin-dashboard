@@ -43,6 +43,10 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS stats_sections (user_id INTEGER NOT NULL, section TEXT NOT NULL, PRIMARY KEY(user_id,section));
                 CREATE TABLE IF NOT EXISTS attempts (
                     bucket TEXT PRIMARY KEY, count INTEGER NOT NULL, until_at INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS agent_keys (
+                    id INTEGER PRIMARY KEY, label TEXT NOT NULL,
+                    key_hash TEXT UNIQUE NOT NULL, created INTEGER NOT NULL,
+                    revoked INTEGER NOT NULL DEFAULT 0, last_used INTEGER);
             ''')
             row = db.execute("SELECT value FROM settings WHERE key='signing_key'").fetchone()
             if not row:
@@ -231,6 +235,66 @@ class AuthStore:
                     raise AuthError('Keep at least one active admin.')
             db.execute('UPDATE users SET role=?,active=?,password=? WHERE id=?',(role,int(active),password_hash or row['password'],user_id))
             db.execute('DELETE FROM sessions WHERE user_id=?',(user_id,))
+
+    AGENT_KEY_LIMIT = 20
+
+    def create_agent_key(self, label):
+        if not isinstance(label,str) or not 1 <= len(label.strip()) <= 40 or any(ord(c)<32 for c in label):
+            raise AuthError('Use a key label of 1-40 characters.')
+        key = 'vpk_' + secrets.token_urlsafe(24)
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        with self.lock, self.db() as db:
+            if db.execute('SELECT count(*) FROM agent_keys WHERE revoked=0').fetchone()[0] >= self.AGENT_KEY_LIMIT:
+                raise AuthError('Agent key limit reached. Revoke a key first.')
+            cursor = db.execute('INSERT INTO agent_keys(label,key_hash,created,revoked) VALUES (?,?,?,0)', (label.strip(), digest, int(time.time())))
+        return cursor.lastrowid, key
+
+    def list_agent_keys(self):
+        with self.db() as db:
+            return [dict(r) for r in db.execute('SELECT id,label,created,revoked,last_used FROM agent_keys ORDER BY created DESC')]
+
+    def revoke_agent_key(self, key_id):
+        with self.lock, self.db() as db:
+            if not db.execute('SELECT id FROM agent_keys WHERE id=?',(key_id,)).fetchone():
+                raise AuthError('Agent key not found.',404)
+            db.execute('UPDATE agent_keys SET revoked=1 WHERE id=?',(key_id,))
+
+    def agent_key(self, presented, ip):
+        # Valid keys are never throttled or delayed; only a presented key
+        # that does not match counts, so agents are never slowed. Hash
+        # lookup is exact-match, not a timing oracle across stored keys.
+        if not isinstance(presented, str) or not presented:
+            return None
+        now = int(time.time())
+        bucket = 'agentkey:' + str(ip)
+        with self.lock, self.db() as db:
+            db.execute('DELETE FROM attempts WHERE until_at < ?',(now,))
+            record = db.execute('SELECT id,label,created,revoked FROM agent_keys WHERE key_hash=?',(hashlib.sha256(presented.encode()).hexdigest(),)).fetchone()
+            bad = not record or record['revoked']
+            locked = False
+            if bad:
+                row = db.execute('SELECT count FROM attempts WHERE bucket=?',(bucket,)).fetchone()
+                locked = bool(row) and row[0] >= 30
+                if not locked:
+                    db.execute('INSERT INTO attempts VALUES (?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1',(bucket,now+900))
+            else:
+                db.execute('UPDATE agent_keys SET last_used=? WHERE id=?',(now,record['id']))
+        # Raise only after the transaction commits, so the failed-attempt
+        # count is not rolled back.
+        if bad and locked:
+            raise AuthError('Too many attempts. Try again in 15 minutes.',429)
+        if bad:
+            raise AuthError('Agent key is invalid or revoked.',401)
+        return dict(record)
+
+    def agent_write_throttle(self, key_id):
+        key='agentwrite:'+str(key_id);now=int(time.time())
+        with self.lock,self.db() as db:
+            db.execute('DELETE FROM attempts WHERE until_at < ?',(now,))
+            row=db.execute('SELECT count FROM attempts WHERE bucket=?',(key,)).fetchone()
+            if row and row[0]>=60:
+                raise AuthError('Too many playlist changes. Try again in 15 minutes.',429)
+            db.execute('INSERT INTO attempts VALUES (?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1',(key,now+900))
 
     def preferences(self,user_id):
         with self.db() as db:
