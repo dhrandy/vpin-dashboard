@@ -407,7 +407,8 @@ function renderStats() {
   const nameOrder = (a, b) => a.name.localeCompare(b.name);
   const most = [...counted].filter((t) => t.playCount > 0).sort((a, b) => b.playCount - a.playCount || nameOrder(a, b)).slice(0, 10);
   const least = [...counted].sort((a, b) => a.playCount - b.playCount || nameOrder(a, b)).slice(0, 10);
-  const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></div>`).join("");
+  const playRowBtn = (t) => t && canLaunch(t) ? `<button type="button" class="play-row" data-play="${t.gameId}" aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : "";
+  const playRows = (rows, bars) => rows.map((t, i) => `<div class="rank-row"><span class="rank-num">${i + 1}</span><div><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${bars ? `<div class="bar rank-bar"><i style="width:${(t.playCount / (most[0]?.playCount || 1)) * 100}%"></i></div>` : ""}</div><span class="rank-side">${playRowBtn(t)}<span class="rank-value">${fmt(t.playCount)}<small>plays</small></span></span></div>`).join("");
   $("most-played").innerHTML = most.length ? playRows(most, true) : '<p class="muted">No positive play counts reported yet.</p>';
   $("least-played").innerHTML = least.length ? playRows(least, false) : '<p class="muted">Play counts are not available from the cabinet.</p>';
   const recent = statTables.filter((t) => t.lastPlayedAt && Number.isFinite(Date.parse(t.lastPlayedAt)))
@@ -421,7 +422,7 @@ function renderStats() {
     const weeks = Math.round(days / 7);
     return weeks + (weeks === 1 ? " wk ago" : " wks ago");
   };
-  $("recent-tables").innerHTML = recent.length ? recent.map((t) => `<div class="feed-item"><span class="feed-dot" aria-hidden="true"></span><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button><time class="feed-when" datetime="${esc(t.lastPlayedAt)}">${esc(playedAgo(t.lastPlayedAt) + " \u00b7 " + playedDate(t.lastPlayedAt))}</time></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
+  $("recent-tables").innerHTML = recent.length ? recent.map((t) => `<div class="feed-item"><span class="feed-dot" aria-hidden="true"></span><button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button><span class="rank-side">${playRowBtn(t)}<time class="feed-when" datetime="${esc(t.lastPlayedAt)}">${esc(playedAgo(t.lastPlayedAt) + " \u00b7 " + playedDate(t.lastPlayedAt))}</time></span></div>`).join("") : '<p class="muted">No last-played dates reported yet.</p>';
   const topEntries = (DATA.topTables || []).filter((e) => !HIDDEN.has(e.gameId));
   const topTotal = DATA.topTablesTotal || 100;
   let topUnplayed = 0;
@@ -429,7 +430,7 @@ function renderStats() {
     const t = statTables.find((x) => x.gameId === e.gameId);
     const plays = t && Number.isInteger(t.playCount) ? t.playCount : 0;
     if (!plays) topUnplayed++;
-    const playBtn = t && canLaunch(t) ? `<button type="button" class="play-row" data-play="${t.gameId}" aria-label="Play ${esc(t.name)} on the cabinet" title="Play ${esc(t.name)} on the cabinet"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.5L14.5 8L4.5 13.5Z" fill="currentColor"/></svg></button>` : "";
+    const playBtn = playRowBtn(t);
     const right = `<span class="rank-side">${playBtn}${plays > 0 ? `<span class="rank-value">${fmt(plays)}<small>plays</small></span>` : '<span class="chip-new">Not played yet</span>'}</span>`;
     const meta = [e.maker, e.year].filter(Boolean).join(" \u00b7 ");
     return `<div class="rank-row"><span class="toplist-badge">#${e.rank}</span><div><button class="stats-table tname2" data-open="${e.gameId}">${esc(e.name)}${e.edition ? " " + esc(e.edition) : ""}</button><div class="toplist-meta">${esc(meta)}</div></div>${right}</div>`;
@@ -479,7 +480,7 @@ function renderStats() {
   const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
     .filter((t) => t.best !== null).sort((a, b) => b.best - a.best).slice(0, 10);
   const max = tops[0]?.best || 1;
-  $("top-tables").innerHTML = tops.length ? tops.map((t, i) => `<div class="score-row"><div class="row" style="padding:0"><span>${i + 1}. <button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${t.initials ? ` <span class="who">\u00b7 ${esc(t.initials)}</span>` : ""}</span><span class="pts">${fmt(t.best)}</span></div><div class="bar score-bar"><i style="width:${Math.max(4, (t.best / max) * 100)}%"></i></div></div>`).join("") : '<p class="muted">No scores pulled from the cabinet yet.</p>';
+  $("top-tables").innerHTML = tops.length ? tops.map((t, i) => `<div class="score-row"><div class="row" style="padding:0"><span>${i + 1}. <button class="stats-table tname2" data-open="${t.gameId}">${esc(t.name)}</button>${t.initials ? ` <span class="who">\u00b7 ${esc(t.initials)}</span>` : ""}</span><span class="rank-side">${playRowBtn(t)}<span class="pts">${fmt(t.best)}</span></span></div><div class="bar score-bar"><i style="width:${Math.max(4, (t.best / max) * 100)}%"></i></div></div>`).join("") : '<p class="muted">No scores pulled from the cabinet yet.</p>';
   const players = new Map();
   for (const v of best.values()) {
     if (!v.initials) continue;

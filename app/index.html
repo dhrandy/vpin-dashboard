@@ -372,9 +372,6 @@
   <section id="view-stats" style="display:none">
     <div class="stats-head"><h2>Cabinet stats</h2><p class="muted">Play counts and last-played dates reported by the cabinet. Sync to refresh.</p></div>
     <div class="tiles" id="tiles"></div>
-    <div class="stats-grid stats-grid-top">
-      <div class="panel" data-section="toplist"><div class="ph"><h3>Top tables to play</h3><button type="button" class="hidebtn" data-section-hide="toplist">Hide section</button></div><p class="panel-note">A bundled community top-100 list matched to your library by name, maker and year. No account or key needed.</p><div id="toplist"></div><p class="toplist-count muted" id="toplist-count"></p></div>
-    </div>
     <div class="stats-grid stats-grid-trio">
       <div class="panel" data-section="heatmap"><div class="ph"><h3>Play heatmap</h3><button type="button" class="hidebtn" data-section-hide="heatmap">Hide section</button></div><p class="panel-note">Plays per day over the last 13 weeks, from library snapshots the dashboard already saves. Days fill in as the dashboard syncs; about 90 days are kept.</p><div id="heatmap" class="heat-wrap"></div></div>
       <div class="panel" data-section="decade"><div class="ph"><h3>Plays per decade</h3><button type="button" class="hidebtn" data-section-hide="decade">Hide section</button></div><p class="panel-note">Recorded plays summed by each table's release decade, from fields the cabinet already reports.</p><div id="decade-radar"></div></div>
@@ -392,6 +389,9 @@
     <div class="stats-grid">
       <div class="panel" data-section="makers"><div class="ph"><h3>Tables by maker</h3><button type="button" class="hidebtn" data-section-hide="makers">Hide section</button></div><div id="makers"></div></div>
       <div class="panel" data-section="decades"><div class="ph"><h3>Tables by decade</h3><button type="button" class="hidebtn" data-section-hide="decades">Hide section</button></div><div id="decades"></div></div>
+    </div>
+    <div class="stats-grid stats-grid-top">
+      <div class="panel" data-section="toplist"><div class="ph"><h3>Top tables to play</h3><button type="button" class="hidebtn" data-section-hide="toplist">Hide section</button></div><p class="panel-note">A bundled community top-100 list matched to your library by name, maker and year. No account or key needed.</p><div id="toplist"></div><p class="toplist-count muted" id="toplist-count"></p></div>
     </div>
   </section>
   <section id="view-instructions" class="instructions-page" hidden><h2>Instructions</h2><div id="instructions-content" role="region" aria-label="Cabinet instructions"></div><p id="instructions-admin-note" class="muted" hidden>Edit instructions.md in the dashboard data volume, then tap Refresh. Supports headings, paragraphs, lists and fenced code blocks. Raw HTML and links display as text. Maximum 64 KB, UTF-8.</p></section>
