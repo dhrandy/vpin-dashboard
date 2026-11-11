@@ -22,7 +22,7 @@ let FAVOURITES=new Set();
 let FAVOURITE_BUSY=false;
 let HIDDEN=new Set();
 let STATS_HIDDEN=new Set();
-const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"],["toplist","Top tables to play"],["weekly","Plays per week"]];
+const STATS_SECTIONS=[["most","Top 10 most played"],["least","Top 10 least played"],["recent","Last 10 tables played"],["tops","Top tables by best score"],["players","Player leaderboard"],["makers","Tables by maker"],["decades","Tables by decade"],["toplist","Top tables to play"],["heatmap","Play heatmap"],["decade","Plays per decade"],["weekly","Plays per week"]];
 let HIDDEN_BUSY=false;
 let SHOW_HIDDEN=false;
 let SHOW_PICK=true;
@@ -438,6 +438,42 @@ function renderStats() {
   const weekly = Array.isArray(DATA.playsByWeek) ? DATA.playsByWeek : [];
   const weekMax = Math.max(1, ...weekly.map((w) => w.plays || 0));
   $("weekly").innerHTML = weekly.length ? weekly.map((w) => `<div class="weekly-col"><span class="weekly-num">${fmt(w.plays || 0)}</span><div class="weekly-bar" style="height:${Math.round(((w.plays || 0) / weekMax) * 84)}px"></div><span class="weekly-label">${esc(w.week)}</span></div>`).join("") : '<p class="muted">No weekly plays recorded yet.</p>';
+  requestAnimationFrame(() => {
+    const w = $("weekly");
+    if (!w || !weekly.length || !w.clientHeight) return;
+    const maxH = Math.max(60, w.clientHeight - 40);
+    w.querySelectorAll(".weekly-bar").forEach((b, i) => { b.style.height = Math.round(((weekly[i].plays || 0) / weekMax) * maxH) + "px"; });
+  });
+  const heatDays = Array.isArray(DATA.playsByDay) ? DATA.playsByDay : [];
+  const heatMax = Math.max(1, ...heatDays.map((d) => d.plays || 0));
+  const heatColor = (v) => {
+    if (!v) return "var(--border)";
+    const t = v / heatMax;
+    const seg = t < 0.5 ? [[22,60,74],[34,197,222],t*2] : (t < 0.8 ? [[34,197,222],[190,230,235],(t-0.5)/0.3] : [[190,230,235],[245,158,11],(t-0.8)/0.2]);
+    const m = seg[0].map((x, i) => Math.round(x + (seg[1][i] - x) * seg[2]));
+    return `rgb(${m[0]},${m[1]},${m[2]})`;
+  };
+  const heatTotal = heatDays.reduce((a, d) => a + (d.plays || 0), 0);
+  const busiest = heatDays.reduce((a, d) => ((d.plays || 0) > ((a && a.plays) || 0) ? d : a), null);
+  let streak = 0;
+  for (let i = heatDays.length - 1; i >= 0; i--) { if ((heatDays[i].plays || 0) > 0) streak++; else if (i < heatDays.length - 1) break; }
+  const fmtDay = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  $("heatmap").innerHTML = heatDays.length ? `<div class="heat-main"><div class="heat-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div><div class="heat">${heatDays.map((d) => `<i style="background:${heatColor(d.plays || 0)}" title="${d.plays || 0} plays on ${fmtDay(d.date)}"></i>`).join("")}</div></div><div class="heat-stats"><div><b>${fmt(heatTotal)}</b><span>plays, last 13 weeks</span></div><div><b>${busiest && busiest.plays ? fmtDay(busiest.date) : "-"}</b><span>busiest day${busiest && busiest.plays ? ` (${fmt(busiest.plays)} plays)` : ""}</span></div><div><b>${streak} ${streak === 1 ? "day" : "days"}</b><span>current streak</span></div></div><div class="heat-legend">Less <i style="background:var(--border)"></i><i style="background:rgb(22,60,74)"></i><i style="background:rgb(34,197,222)"></i><i style="background:rgb(190,230,235)"></i><i style="background:rgb(245,158,11)"></i> More</div>` : '<p class="muted">No play history yet. Days fill in as this dashboard syncs.</p>';
+  const decadeAxes = [["Pre-1980",(y)=>y&&y<1980],["1980s",(y)=>y>=1980&&y<1990],["1990s",(y)=>y>=1990&&y<2000],["2000s",(y)=>y>=2000&&y<2010],["2010s",(y)=>y>=2010&&y<2020],["2020s",(y)=>y>=2020]];
+  const dvals = decadeAxes.map(([, f]) => DATA.tables.reduce((a, t) => a + (f(t.year) && Number.isInteger(t.playCount) ? t.playCount : 0), 0));
+  const dmax = Math.max(...dvals, 1);
+  const RN = decadeAxes.length, RCX = 120, RCY = 118, RR = 78;
+  const rpt = (i, f) => { const a = -Math.PI / 2 + i * 2 * Math.PI / RN; return [RCX + Math.cos(a) * RR * f, RCY + Math.sin(a) * RR * f]; };
+  const rpoly = (f) => Array.from({ length: RN }, (_, i) => rpt(i, f).map((x) => x.toFixed(1)).join(",")).join(" ");
+  let rsvg = '<svg viewBox="0 0 240 236" role="img" aria-label="Plays per decade radar chart">';
+  [1/3, 2/3, 1].forEach((f) => { rsvg += `<polygon points="${rpoly(f)}" fill="none" stroke="rgba(148,178,199,.45)" stroke-width="1"/>`; });
+  decadeAxes.forEach((_, i) => { const [x, y] = rpt(i, 1); rsvg += `<line x1="${RCX}" y1="${RCY}" x2="${x}" y2="${y}" stroke="rgba(148,178,199,.3)" stroke-width="1"/>`; });
+  const rpts = dvals.map((v, i) => rpt(i, Math.max(v / dmax, 0.06)));
+  rsvg += `<polygon points="${rpts.map((q) => q.map((x) => x.toFixed(1)).join(",")).join(" ")}" fill="rgba(34,197,222,.38)" stroke="rgb(80,225,250)" stroke-width="2.5"/>`;
+  rpts.forEach((q, i) => { if (dvals[i] > 0) rsvg += `<circle cx="${q[0]}" cy="${q[1]}" r="3.5" fill="rgb(245,158,11)"/>`; });
+  decadeAxes.forEach(([label], i) => { const [lx, ly] = rpt(i, 1.26); rsvg += `<text x="${lx}" y="${ly - 6}" fill="var(--text)" font-size="12" font-weight="700" text-anchor="middle">${label}</text><text x="${lx}" y="${ly + 8}" fill="rgb(245,158,11)" font-size="11" font-weight="700" text-anchor="middle">${fmt(dvals[i])}</text>`; });
+  rsvg += "</svg>";
+  $("decade-radar").innerHTML = rsvg;
   $("view-stats").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   $("view-stats").querySelectorAll("[data-play]").forEach((b) => b.addEventListener("click", () => play(Number(b.dataset.play))));
   const tops = statTables.map((t) => ({ ...t, best: best.get(t.gameId)?.best ?? null, initials: best.get(t.gameId)?.initials ?? null }))
@@ -720,6 +756,7 @@ function switchTab(which) {
   if (which === "admin" && CURRENT_USER?.role === "admin") { loadUsers(); updateImageCache(); loadCollection(); }
   $("tab-library").setAttribute("aria-pressed", String(which === "library"));
   $("tab-stats").setAttribute("aria-pressed", String(which === "stats"));
+  if (which === "stats") renderStats();
 }
 ["search", "sort"].forEach((id) => $(id).addEventListener("input", renderLibrary));
 

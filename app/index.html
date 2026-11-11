@@ -108,7 +108,7 @@
   @media(min-width:1600px){main{max-width:1560px}.grid{grid-template-columns:repeat(6,1fr)}}
   @media(min-width:1920px){main{max-width:1840px}.grid{grid-template-columns:repeat(7,1fr)}}
   @media(min-width:2560px){main{max-width:2400px}.grid{grid-template-columns:repeat(8,1fr)}}
-  @media(min-width:1600px){#view-settings>.panel,#view-admin>form,#view-admin>.panel,#view-admin>p,#view-admin>h2{max-width:1100px}#view-instructions{max-width:1100px}}
+  @media(min-width:1600px){#view-settings>.panel,#view-admin>form,#view-admin>.panel,#view-admin>p,#view-admin>h2{max-width:1100px}#view-instructions{max-width:1100px}#view-stats{max-width:1440px;margin-inline:auto}}
   .card{border:1px solid var(--border);background:var(--surface);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
   .card{position:relative}.heart{display:grid;place-items:center;width:44px;height:44px;flex:none;padding:6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer}.card>.heart{position:absolute;right:8px;top:8px;z-index:1;box-shadow:0 2px 8px #0008}.heart.saved{color:var(--red);border-color:var(--red)}:root[data-colorblind="true"] .heart.saved{color:var(--accent);border-color:var(--accent)}.card>.heart{isolation:isolate;padding:0;background:transparent;border-color:transparent;box-shadow:none}.card>.heart::before{content:"";position:absolute;inset:6px;z-index:-1;border:1px solid #ffffff26;border-radius:6px;background:#0b142466;box-shadow:0 1px 4px #0003}:root[data-colorblind="true"] .card>.heart.saved{border-color:transparent}.card>.heart.saved::before{border-color:color-mix(in srgb,var(--red) 45%,transparent)}:root[data-colorblind="true"] .card>.heart.saved::before{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}.card>.heart:hover::before{background:#0b142499}.card>.heart:focus-visible::before{border-color:var(--cyan)}.heart:disabled{opacity:.55;cursor:wait}.heart:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}.detail-meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.detail-meta p{min-width:0}
   .playtime{font-size:12px;color:var(--dim);margin:0;line-height:1.4;overflow-wrap:anywhere}
@@ -191,6 +191,27 @@
   .stats-grid>.panel{margin-top:0;min-width:0}
   @media(min-width:800px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .stats-grid-top{grid-template-columns:minmax(0,1fr)}
+  .stats-grid-trio{grid-template-columns:minmax(0,1fr)}
+  @media(min-width:900px){.stats-grid-trio{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .stats-grid-trio>.panel{display:flex;flex-direction:column}
+  .stats-grid-trio{--cell:12px}
+  @media(min-width:1500px){.stats-grid-trio{--cell:15px}}
+  .heat-wrap{display:flex;flex-direction:column;flex:1;gap:14px}
+  .heat-main{display:flex;align-items:center;justify-content:center;flex:1;min-width:0;width:100%}
+  .heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,var(--cell));gap:3px;justify-content:center}
+  .heat i{width:var(--cell);height:var(--cell);border-radius:2px;background:var(--border)}
+  .heat-days{display:grid;grid-template-rows:repeat(7,var(--cell));gap:3px;margin-right:6px;font-size:10px;color:var(--muted)}
+  .heat-days span{line-height:var(--cell)}
+  .heat-stats{display:flex;gap:10px;border-top:1px solid var(--border);padding-top:10px;justify-content:space-between}
+  .heat-stats b{display:block;font-size:16px;color:var(--accent);font-weight:800}
+  .heat-stats span{font-size:11px;color:var(--muted)}
+  .heat-legend{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)}
+  .heat-legend i{width:12px;height:12px;border-radius:2px;display:inline-block}
+  #decade-radar{display:flex;justify-content:center;align-items:center;flex:1}
+  #decade-radar svg{width:100%;max-width:300px;height:auto}
+  .stats-grid-trio .panel[data-section="weekly"] .weekly-chart{flex:1;display:flex;align-items:flex-end;justify-content:space-between;gap:6px}
+  .stats-grid-trio .panel[data-section="weekly"] .weekly-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .stats-grid-trio .panel[data-section="weekly"] .weekly-bar{width:100%;max-width:52px}
   .stats-grid-mid{grid-template-columns:minmax(0,1fr)}
   @media(min-width:1600px){.stats-grid-mid{grid-template-columns:repeat(3,minmax(0,1fr))}}
   .stats-table{background:transparent;border:0;color:var(--text);font:inherit;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
@@ -353,6 +374,10 @@
     <div class="tiles" id="tiles"></div>
     <div class="stats-grid stats-grid-top">
       <div class="panel" data-section="toplist"><div class="ph"><h3>Top tables to play</h3><button type="button" class="hidebtn" data-section-hide="toplist">Hide section</button></div><p class="panel-note">A bundled community top-100 list matched to your library by name, maker and year. No account or key needed.</p><div id="toplist"></div><p class="toplist-count muted" id="toplist-count"></p></div>
+    </div>
+    <div class="stats-grid stats-grid-trio">
+      <div class="panel" data-section="heatmap"><div class="ph"><h3>Play heatmap</h3><button type="button" class="hidebtn" data-section-hide="heatmap">Hide section</button></div><p class="panel-note">Plays per day over the last 13 weeks, from library snapshots the dashboard already saves. Days fill in as the dashboard syncs; about 90 days are kept.</p><div id="heatmap" class="heat-wrap"></div></div>
+      <div class="panel" data-section="decade"><div class="ph"><h3>Plays per decade</h3><button type="button" class="hidebtn" data-section-hide="decade">Hide section</button></div><p class="panel-note">Recorded plays summed by each table's release decade, from fields the cabinet already reports.</p><div id="decade-radar"></div></div>
       <div class="panel" data-section="weekly"><div class="ph"><h3>Plays per week</h3><button type="button" class="hidebtn" data-section-hide="weekly">Hide section</button></div><p class="panel-note">Plays recorded by the cabinet each week, from saved library snapshots. Weeks fill in as this dashboard syncs; nothing outside the cabinet is used.</p><div id="weekly" class="weekly-chart"></div></div>
     </div>
     <div class="stats-grid">

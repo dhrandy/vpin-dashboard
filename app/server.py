@@ -883,6 +883,8 @@ class Handler(BaseHTTPRequestHandler):
                         lib=dict(lib)
                         try: lib['playsByWeek']=COLLECTOR.plays_by_week()
                         except Exception: lib['playsByWeek']=[]
+                        try: lib['playsByDay']=COLLECTOR.plays_by_day()
+                        except Exception: lib['playsByDay']=[]
                     return self._send(200,lib)
                 return self._send(200, safe_value(library_payload()))
             if path == "/api/status":

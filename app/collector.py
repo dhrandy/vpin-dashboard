@@ -166,15 +166,8 @@ class Collector:
         finally:
             self.pull_lock.release()
 
-    def plays_by_week(self, weeks=8):
-        """Plays recorded per week, from saved library snapshots.
-
-        Each history row is a changed library snapshot; the delta of total
-        recorded plays between consecutive snapshots is attributed to the
-        week of the later snapshot. Negative deltas (table removed) count as
-        zero. History starts with this dashboard's first sync and is kept
-        for the retention window, so early weeks fill in over time.
-        """
+    def _play_points(self):
+        """(timestamp, total recorded plays) for each saved library snapshot."""
         with self.db() as db:
             rows = db.execute("SELECT at,payload FROM history WHERE kind='library' ORDER BY at").fetchall()
             latest = self.read(db, 'latest_library')
@@ -198,13 +191,28 @@ class Collector:
                     points.append((at, total))
         # Key weeks by the Monday date, not epoch arithmetic: DST transitions
         # make fixed 7-day offsets drift an hour off the bucket boundaries.
+        return points
+
+    @staticmethod
+    def _monday_of(ts):
+        lt = time.localtime(ts)
+        return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
+
+    def plays_by_week(self, weeks=8):
+        """Plays recorded per week, from saved library snapshots.
+
+        Each history row is a changed library snapshot; the delta of total
+        recorded plays between consecutive snapshots is attributed to the
+        week of the later snapshot. Negative deltas (table removed) count as
+        zero. History starts with this dashboard's first sync and is kept
+        for the retention window, so early weeks fill in over time.
+        """
+        points = self._play_points()
         def week_key(ts):
             lt = time.localtime(ts)
             monday = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
             return time.strftime('%Y-%m-%d', time.localtime(monday))
-        def monday_of(ts):
-            lt = time.localtime(ts)
-            return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
+        monday_of = self._monday_of
         now = self.clock()
         first = monday_of(now) - (weeks - 1) * 604800
         keys = [week_key(first + i * 604800) for i in range(weeks)]
@@ -217,6 +225,25 @@ class Collector:
             if k in buckets:
                 buckets[k] += delta
         return [{'week': time.strftime('%b %-d', time.strptime(k, '%Y-%m-%d')), 'plays': buckets[k]} for k in keys]
+
+    def plays_by_day(self, weeks=13):
+        """Plays recorded per day, same snapshot deltas as plays_by_week,
+        attributed to the day of the later snapshot. Returns whole weeks
+        starting on a Monday so the heatmap grid aligns. Date-string keys
+        keep DST transitions from drifting the day buckets."""
+        points = self._play_points()
+        first = self._monday_of(self.clock()) - (weeks - 1) * 604800
+        lt = time.localtime(first)
+        keys = [time.strftime('%Y-%m-%d', time.localtime(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + i, 12, 0, 0, 0, 0, -1)))) for i in range(weeks * 7)]
+        buckets = {k: 0 for k in keys}
+        for (a0, t0), (a1, t1) in zip(points, points[1:]):
+            delta = max(0, t1 - t0)
+            if not delta:
+                continue
+            k = time.strftime('%Y-%m-%d', time.localtime(a1))
+            if k in buckets:
+                buckets[k] += delta
+        return [{'date': k, 'plays': buckets[k]} for k in keys]
 
     def library(self, refresh=False):
         if refresh:

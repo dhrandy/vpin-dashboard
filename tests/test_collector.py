@@ -130,4 +130,28 @@ class Tests(unittest.TestCase):
   self.data={'ok':True,'tables':[{'gameId':1,'playCount':0}],'scores':[],'playlists':[]}
   self.c.step(manual=True)  # playCount dropped (table removed): no negative plays
   self.assertEqual(sum(w['plays'] for w in self.c.plays_by_week()),0)
+ def test_plays_by_day(self):
+  # Snapshot 1: 10 total plays. A day later snapshot 2: 25 -> 15 plays on that day.
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':10}],'scores':[],'playlists':[]}
+  self.c.step()
+  self.advance(86400+3600)
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':25}],'scores':[],'playlists':[]}
+  self.c.step(manual=True)
+  days=self.c.plays_by_day()
+  self.assertEqual(len(days),91)
+  self.assertEqual(sum(d['plays'] for d in days),15)
+  import time as _t
+  today=_t.strftime('%Y-%m-%d',_t.localtime(self.t))
+  self.assertEqual({d['date']:d['plays'] for d in days}[today],15)
+  # Whole weeks: first day is a Monday.
+  first=days[0]['date']
+  self.assertEqual(_t.localtime(_t.mktime(_t.strptime(first,'%Y-%m-%d'))).tm_wday,0)
+ def test_plays_by_day_empty_and_clamped(self):
+  self.assertEqual(sum(d['plays'] for d in self.c.plays_by_day()),0)
+  self.assertEqual(len(self.c.plays_by_day()),91)
+  self.c.step()
+  self.advance(3600)
+  self.data={'ok':True,'tables':[{'gameId':1,'playCount':0}],'scores':[],'playlists':[]}
+  self.c.step(manual=True)  # playCount dropped: no negative plays
+  self.assertEqual(sum(d['plays'] for d in self.c.plays_by_day()),0)
 if __name__=='__main__':unittest.main(verbosity=2)
