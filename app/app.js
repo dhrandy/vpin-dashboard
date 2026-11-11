@@ -668,7 +668,6 @@ async function performLoad(manual,refresh=false) {
   try{await loadFavourites();}catch(e){readIssues.push('Personal favorites unavailable');}
   try{await loadHidden();}catch(e){readIssues.push('Hidden tables unavailable');}
   try{await loadStatsSections();}catch(e){readIssues.push('Stats section settings unavailable');}
-  document.querySelectorAll('[data-section-hide]').forEach((b)=>b.addEventListener('click',()=>toggleStatsSection(b.dataset.sectionHide,true)));
   renderStatsSectionsPanel();
   renderLibrary(); renderStats();
   await loadStatus();

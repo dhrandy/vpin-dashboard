@@ -159,9 +159,6 @@
   .tile .l{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-top:6px}
   .ph{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:6px}
   .ph h3{margin:0;text-transform:uppercase;letter-spacing:.03em;font-size:15px}
-  .hidebtn{background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:6px;font-size:11px;font-weight:600;padding:4px 12px;min-height:44px;cursor:pointer;white-space:nowrap}
-  .hidebtn:hover{color:var(--text);border-color:var(--dim)}
-  .hidebtn:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
   .feed{display:flex;flex-direction:column}
   .feed-item{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);align-items:center;font-size:14px}
   .feed-item:last-child{border-bottom:0}
@@ -373,25 +370,25 @@
     <div class="stats-head"><h2>Cabinet stats</h2><p class="muted">Play counts and last-played dates reported by the cabinet. Sync to refresh.</p></div>
     <div class="tiles" id="tiles"></div>
     <div class="stats-grid stats-grid-trio">
-      <div class="panel" data-section="heatmap"><div class="ph"><h3>Play heatmap</h3><button type="button" class="hidebtn" data-section-hide="heatmap">Hide section</button></div><p class="panel-note">Plays per day over the last 13 weeks, from library snapshots the dashboard already saves. Days fill in as the dashboard syncs; about 90 days are kept.</p><div id="heatmap" class="heat-wrap"></div></div>
-      <div class="panel" data-section="decade"><div class="ph"><h3>Plays per decade</h3><button type="button" class="hidebtn" data-section-hide="decade">Hide section</button></div><p class="panel-note">Recorded plays summed by each table's release decade, from fields the cabinet already reports.</p><div id="decade-radar"></div></div>
-      <div class="panel" data-section="weekly"><div class="ph"><h3>Plays per week</h3><button type="button" class="hidebtn" data-section-hide="weekly">Hide section</button></div><p class="panel-note">Plays recorded by the cabinet each week, from saved library snapshots. Weeks fill in as this dashboard syncs; nothing outside the cabinet is used.</p><div id="weekly" class="weekly-chart"></div></div>
+      <div class="panel" data-section="heatmap"><div class="ph"><h3>Play heatmap</h3></div><p class="panel-note">Plays per day over the last 13 weeks, from library snapshots the dashboard already saves. Days fill in as the dashboard syncs; about 90 days are kept.</p><div id="heatmap" class="heat-wrap"></div></div>
+      <div class="panel" data-section="decade"><div class="ph"><h3>Plays per decade</h3></div><p class="panel-note">Recorded plays summed by each table's release decade, from fields the cabinet already reports.</p><div id="decade-radar"></div></div>
+      <div class="panel" data-section="weekly"><div class="ph"><h3>Plays per week</h3></div><p class="panel-note">Plays recorded by the cabinet each week, from saved library snapshots. Weeks fill in as this dashboard syncs; nothing outside the cabinet is used.</p><div id="weekly" class="weekly-chart"></div></div>
     </div>
     <div class="stats-grid">
-      <div class="panel" data-section="most"><div class="ph"><h3>Top 10 most played</h3><button type="button" class="hidebtn" data-section-hide="most">Hide section</button></div><p class="panel-note">Lifetime plays recorded by the cabinet.</p><div id="most-played"></div></div>
-      <div class="panel" data-section="least"><div class="ph"><h3>Top 10 least played</h3><button type="button" class="hidebtn" data-section-hide="least">Hide section</button></div><p class="panel-note">Including tables with zero recorded plays. Unknown counts are excluded.</p><div id="least-played"></div></div>
+      <div class="panel" data-section="most"><div class="ph"><h3>Top 10 most played</h3></div><p class="panel-note">Lifetime plays recorded by the cabinet.</p><div id="most-played"></div></div>
+      <div class="panel" data-section="least"><div class="ph"><h3>Top 10 least played</h3></div><p class="panel-note">Including tables with zero recorded plays. Unknown counts are excluded.</p><div id="least-played"></div></div>
     </div>
     <div class="stats-grid stats-grid-mid">
-      <div class="panel" data-section="recent"><div class="ph"><h3>Last 10 tables played</h3><button type="button" class="hidebtn" data-section-hide="recent">Hide section</button></div><p class="panel-note">Most recent distinct tables, not a session-by-session log. Cabinet local time.</p><div class="feed" id="recent-tables"></div></div>
-      <div class="panel" data-section="tops"><div class="ph"><h3>Top tables by best score</h3><button type="button" class="hidebtn" data-section-hide="tops">Hide section</button></div><div id="top-tables"></div></div>
-      <div class="panel board" data-section="players"><div class="ph"><h3>Player leaderboard</h3><button type="button" class="hidebtn" data-section-hide="players">Hide section</button></div><div id="players"></div></div>
+      <div class="panel" data-section="recent"><div class="ph"><h3>Last 10 tables played</h3></div><p class="panel-note">Most recent distinct tables, not a session-by-session log. Cabinet local time.</p><div class="feed" id="recent-tables"></div></div>
+      <div class="panel" data-section="tops"><div class="ph"><h3>Top tables by best score</h3></div><div id="top-tables"></div></div>
+      <div class="panel board" data-section="players"><div class="ph"><h3>Player leaderboard</h3></div><div id="players"></div></div>
     </div>
     <div class="stats-grid">
-      <div class="panel" data-section="makers"><div class="ph"><h3>Tables by maker</h3><button type="button" class="hidebtn" data-section-hide="makers">Hide section</button></div><div id="makers"></div></div>
-      <div class="panel" data-section="decades"><div class="ph"><h3>Tables by decade</h3><button type="button" class="hidebtn" data-section-hide="decades">Hide section</button></div><div id="decades"></div></div>
+      <div class="panel" data-section="makers"><div class="ph"><h3>Tables by maker</h3></div><div id="makers"></div></div>
+      <div class="panel" data-section="decades"><div class="ph"><h3>Tables by decade</h3></div><div id="decades"></div></div>
     </div>
     <div class="stats-grid stats-grid-top">
-      <div class="panel" data-section="toplist"><div class="ph"><h3>Top tables to play</h3><button type="button" class="hidebtn" data-section-hide="toplist">Hide section</button></div><p class="panel-note">A bundled community top-100 list matched to your library by name, maker and year. No account or key needed.</p><div id="toplist"></div><p class="toplist-count muted" id="toplist-count"></p></div>
+      <div class="panel" data-section="toplist"><div class="ph"><h3>Top tables to play</h3></div><p class="panel-note">A bundled community top-100 list matched to your library by name, maker and year. No account or key needed.</p><div id="toplist"></div><p class="toplist-count muted" id="toplist-count"></p></div>
     </div>
   </section>
   <section id="view-instructions" class="instructions-page" hidden><h2>Instructions</h2><div id="instructions-content" role="region" aria-label="Cabinet instructions"></div><p id="instructions-admin-note" class="muted" hidden>Edit instructions.md in the dashboard data volume, then tap Refresh. Supports headings, paragraphs, lists and fenced code blocks. Raw HTML and links display as text. Maximum 64 KB, UTF-8.</p></section>
