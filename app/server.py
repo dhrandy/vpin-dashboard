@@ -95,7 +95,30 @@ def auth_store():
             AUTH = AuthStore(AUTH_DIR)
     return AUTH
 
+_INSTRUCTIONS_CACHE = {}
+_INSTRUCTIONS_LOCK = threading.Lock()
+
 def read_instructions():
+    # Serve the saved copy; re-read the file only when it changes.
+    try:
+        info = os.stat(INSTRUCTIONS_PATH)
+        key = (info.st_mtime_ns, info.st_size)
+    except FileNotFoundError:
+        key = None
+    except OSError:
+        key = "stat-error"
+    if key != "stat-error":
+        with _INSTRUCTIONS_LOCK:
+            if _INSTRUCTIONS_CACHE.get("key") == key and "result" in _INSTRUCTIONS_CACHE:
+                return dict(_INSTRUCTIONS_CACHE["result"])
+    result = _read_instructions_file()
+    if key != "stat-error":
+        with _INSTRUCTIONS_LOCK:
+            _INSTRUCTIONS_CACHE["key"] = key
+            _INSTRUCTIONS_CACHE["result"] = result
+    return dict(result)
+
+def _read_instructions_file():
     try:
         fd = os.open(INSTRUCTIONS_PATH, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as source:

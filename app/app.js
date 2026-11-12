@@ -670,9 +670,8 @@ async function performLoad(manual,refresh=false) {
   await loadStatus();
   renderGameNight();
   updateModalCache();
-  if(!await loadInstructions())readIssues.push('Cabinet instructions unavailable');
   if(error)readIssues.unshift('Library refresh unavailable');
-  if(readIssues.length){const issueMsg=readIssues.join(' · ')+'. Keeping saved data; retrying when connected.';note.innerHTML=`<span class="note-warn" role="img" aria-label="${esc(issueMsg)}" title="${esc(issueMsg)}"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5 15 14H1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.8" r="0.9" fill="currentColor"/></svg></span>`;note.classList.remove('err');}else note.classList.remove('err');
+  note.classList.remove('err');
   if (manual) {
     btn.disabled = false; btn.classList.remove("syncing"); label.textContent = "Sync";
     if (error || readIssues.length) {
@@ -749,6 +748,7 @@ function switchTab(which) {
   $("view-settings").hidden=which!=="settings";$("tab-settings").setAttribute("aria-pressed",String(which==="settings"));
   $("view-instructions").hidden=which!=="instructions";
   $("tab-instructions").setAttribute("aria-pressed",String(which==="instructions"));
+  if(which==="instructions")loadInstructions();
   $("view-library").style.display = which === "library" ? "block" : "none";
   $("view-stats").style.display = which === "stats" ? "block" : "none";
   $("view-admin").hidden = which !== "admin" || CURRENT_USER?.role !== "admin";
@@ -786,7 +786,7 @@ async function loadInstructions(){
     $('instructions-content').innerHTML=available?instructionsHTML(data.text):'<p class="muted">No cabinet instructions have been added yet.</p>';
     return true;
   }catch(e){
-    if(!$('instructions-content').textContent.trim())$('instructions-content').innerHTML='<p class="muted">Cabinet instructions could not be loaded. Use Refresh to retry.</p>';
+    if(!$('instructions-content').textContent.trim())$('instructions-content').innerHTML='<p class="muted">Cabinet instructions could not be loaded. Reopen this page to retry.</p>';
     return false;
   }
 }
@@ -880,7 +880,7 @@ $('branding-form').addEventListener('submit',async e=>{
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
   $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('sync-tools').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
   try{await loadNight();}catch(e){nightError(e);}
-  await loadPreferences();await loadBranding();if(admin)updateImageCache();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
+  await loadPreferences();await loadBranding();if(admin)updateImageCache();loadInstructions();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
 })().catch(error=>showBanner(error.message||'Dashboard could not be loaded. Refresh to try again.'));
 
 $('playfield-lightbox').addEventListener('click',e=>{if(e.target===$('playfield-lightbox'))e.target.close();});
