@@ -1118,11 +1118,11 @@ class Handler(BaseHTTPRequestHandler):
                 tables=(COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
                 return self._send(200, {'ok':True, **gn.save_custom(store,body,tables)})
             if path == '/api/preferences':
-                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden','showPick','hideEmptyPlaylists','showVpw','showInstructions'} or any(type(v) is not bool for v in body.values()):
+                if not set(body) or not set(body)<={'colorblind','showTimer','showPlayTime','statusDetails','backToTop','showHidden','showPick','hideEmptyPlaylists','showVpw','showInstructions','hideEmptyThemes'} or any(type(v) is not bool for v in body.values()):
                     raise AuthError('Valid display preferences required.')
                 store=auth_store();store.personal_write_throttle(session['id'])
                 current=store.preferences(session['id']);current.update(body)
-                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'],current['showPick'],current['hideEmptyPlaylists'],current['showVpw'],current['showInstructions'])})
+                return self._send(200,{'ok':True,**store.set_preferences(session['id'],current['colorblind'],current['showTimer'],current['showPlayTime'],current['statusDetails'],current['backToTop'],current['showHidden'],current['showPick'],current['hideEmptyPlaylists'],current['showVpw'],current['showInstructions'],current['hideEmptyThemes'])})
             if path == '/api/favourites':
                 game_id=body.get('gameId');saved=body.get('saved')
                 if type(game_id) is not int or not 0<game_id<=2147483647 or type(saved) is not bool:

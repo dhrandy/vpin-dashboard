@@ -259,7 +259,8 @@ a current list or clear its checks.
 Choose a theme on the left (a dropdown on phones), then Start night. The
 selected theme card shows small previews of up to three tables in the theme,
 using the same cached playfield pictures as the library; an empty theme shows
-a simple icon instead. The six
+a simple icon instead. Themes with no matching tables are hidden by default;
+Settings can show them again. The six
 largest manufacturer pools appear as individual themes, computed from visible
 tables. Known maker aliases are combined; Original and unknown makers are
 excluded. Count ties break alphabetically. Originals night is an additional

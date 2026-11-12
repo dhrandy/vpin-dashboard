@@ -18,7 +18,7 @@ class PreferenceTests(unittest.TestCase):
                 db.execute('ALTER TABLE preferences DROP COLUMN hide_empty')
                 db.execute('ALTER TABLE preferences DROP COLUMN show_instructions')
             store=AuthStore(folder)
-            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True,showHidden=False,showPick=True,hideEmptyPlaylists=True,showVpw=False,showInstructions=True))
+            self.assertEqual(store.preferences(1),dict(colorblind=True,showTimer=False,showPlayTime=False,statusDetails=True,backToTop=True,showHidden=False,showPick=True,hideEmptyPlaylists=True,showVpw=False,showInstructions=True,hideEmptyThemes=True))
             store.set_preferences(1,True,False,False,True,False)
             self.assertFalse(AuthStore(folder).preferences(1)['backToTop'])
             self.assertTrue(store.preferences(2)['backToTop'])
@@ -30,4 +30,11 @@ class PreferenceTests(unittest.TestCase):
             prefs=store.set_preferences(1,False,True,True,False,True,False,False)
             self.assertFalse(prefs['showPick'])
             self.assertFalse(AuthStore(folder).preferences(1)['showPick'])
+    def test_hide_empty_themes_roundtrip_and_default(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=AuthStore(folder)
+            self.assertTrue(store.preferences(1)['hideEmptyThemes'])
+            prefs=store.set_preferences(1,False,hide_empty_themes=False)
+            self.assertFalse(prefs['hideEmptyThemes'])
+            self.assertFalse(AuthStore(folder).preferences(1)['hideEmptyThemes'])
 if __name__=='__main__':unittest.main()

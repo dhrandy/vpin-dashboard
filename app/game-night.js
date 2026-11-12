@@ -79,7 +79,8 @@ function renderGameNight(){
   if(!NIGHT_STATE.enabled&&$('tab-night').getAttribute('aria-pressed')==='true')switchTab('library');
   const makers=[...new Set(DATA.tables.filter(t=>!HIDDEN.has(t.gameId)).map(t=>t.maker).filter(Boolean))].sort();
   if(!makers.includes(NIGHT_MAKER))NIGHT_MAKER=makers[0]||'';
-  const visible=nightThemes().filter(t=>!NIGHT_STATE.hiddenThemes.includes(t[0]));
+  let visible=nightThemes().filter(t=>!NIGHT_STATE.hiddenThemes.includes(t[0]));
+  if(HIDE_EMPTY_THEMES){const nonEmpty=visible.filter(t=>nightPool(t[0]).length);if(nonEmpty.length)visible=nonEmpty;}
   if(!visible.some(t=>t[0]===NIGHT_THEME))NIGHT_THEME=visible.find(t=>nightPool(t[0]).length)?.[0]||visible[0]?.[0]||'';
   const menu=visible.map(([key,label])=>{const count=nightPool(key).length;return `<button type="button" class="night-theme" data-night-theme="${esc(key)}" aria-pressed="${key===NIGHT_THEME}" ${!count||NIGHT_BUSY?'disabled':''}><strong>${esc(label)}</strong><span>${count} tables</span></button>`;}).join('');
   $('night-themes').innerHTML=menu||'<p class="muted">Choose themes in Settings.</p>';
