@@ -466,8 +466,11 @@ function renderStats() {
   };
   const heatTotal = heatDays.reduce((a, d) => a + (d.plays || 0), 0);
   const busiest = heatDays.reduce((a, d) => ((d.plays || 0) > ((a && a.plays) || 0) ? d : a), null);
+  const now = new Date();
+  const todayKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  const pastDays = heatDays.filter((d) => typeof d.date === "string" && d.date <= todayKey);
   let streak = 0;
-  for (let i = heatDays.length - 1; i >= 0; i--) { if ((heatDays[i].plays || 0) > 0) streak++; else if (i < heatDays.length - 1) break; }
+  for (let i = pastDays.length - 1; i >= 0; i--) { if ((pastDays[i].plays || 0) > 0) streak++; else if (i < pastDays.length - 1) break; }
   const fmtDay = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
   $("heatmap").innerHTML = heatDays.length ? `<div class="heat-main"><div class="heat-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div><div class="heat">${heatDays.map((d) => `<i style="background:${heatColor(d.plays || 0)}" title="${d.plays || 0} plays on ${fmtDay(d.date)}"></i>`).join("")}</div></div><div class="heat-stats"><div><b>${fmt(heatTotal)}</b><span>plays, last 13 weeks</span></div><div><b>${busiest && busiest.plays ? fmtDay(busiest.date) : "-"}</b><span>busiest day${busiest && busiest.plays ? ` (${fmt(busiest.plays)} plays)` : ""}</span></div><div><b>${streak} ${streak === 1 ? "day" : "days"}</b><span>current streak</span></div></div><div class="heat-legend">Less <i style="background:var(--border)"></i><i style="background:rgb(22,60,74)"></i><i style="background:rgb(34,197,222)"></i><i style="background:rgb(190,230,235)"></i><i style="background:rgb(245,158,11)"></i> More</div>` : '<p class="muted">No play history yet. Days fill in as this dashboard syncs.</p>';
   const decadeAxes = [["Pre-1980",(y)=>y&&y<1980],["1980s",(y)=>y>=1980&&y<1990],["1990s",(y)=>y>=1990&&y<2000],["2000s",(y)=>y>=2000&&y<2010],["2010s",(y)=>y>=2010&&y<2020],["2020s",(y)=>y>=2020]];
