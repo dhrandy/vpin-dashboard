@@ -1027,7 +1027,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/night-themes':
                 import game_night as gn
                 tables = (COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
-                return self._send(200, {'ok':True, 'themes':[{'id':t['id'], **gn.resolve(t, tables)} for t in gn.custom(auth_store())]})
+                return self._send(200, {'ok':True, 'themes':[{'id':t['id'], 'revision':t.get('revision',0), **gn.resolve(t, tables)} for t in gn.custom(auth_store())]})
             return self._send(404, {'ok':False,'error':'not found'})
         except urllib.error.HTTPError as e:
             return self._send(e.code, {'ok':False, 'error': f'bridge HTTP {e.code}'})
@@ -1035,79 +1035,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(502, {'ok':False, 'error':'The cabinet service is unavailable.'})
 
     def _agent_post(self, path):
-        # Agent keys may only create/rename playlists and add or remove
-        # their tables. No launch, exit, settings, hide or user changes.
+        # Agent keys may only preview and save imported Game night themes.
+        # No playlist, launch, exit, settings, hide or user changes, and
+        # nothing that reaches the cabinet.
         try:
             key = auth_store().agent_key(self.headers.get('X-Api-Key'), self.client_address[0])
             if not key:
                 raise AuthError('Agent key required.',401)
+            if path != '/api/agent/night-themes':
+                return self._send(404, {'ok':False,'error':'not found'})
             body = self._body()
             auth_store().agent_write_throttle(key['id'])
-            if path == '/api/agent/playlists':
-                return self._send(200, self._playlist_save(-1, body))
-            match = re.fullmatch(r'/api/agent/playlists/([0-9]+)', path)
-            if match:
-                return self._send(200, self._playlist_save(int(match.group(1)), body))
-            match = re.fullmatch(r'/api/agent/playlists/([0-9]+)/tables', path)
-            if match:
-                return self._send(200, self._playlist_table(int(match.group(1)), body))
-            return self._send(404, {'ok':False,'error':'not found'})
+            import game_night as gn
+            if not isinstance(body, dict) or body.get('action') not in ('preview','save'):
+                raise AuthError('Themes can only be previewed or saved.')
+            tables = (COLLECTOR.library() if COLLECTOR else {}).get('tables', [])
+            return self._send(200, {'ok':True, **gn.save_custom(auth_store(), body, tables)})
         except AuthError as e:
             return self._send(e.status, {'ok':False,'error':str(e)})
-        except urllib.error.HTTPError as e:
-            code = e.code if e.code in (404,409,502,503,504) else 502
-            return self._send(code, {'ok':False,'error':'The cabinet request failed.'})
         except Exception:
             return self._send(502, {'ok':False,'error':'The request could not be completed.'})
-
-    @staticmethod
-    def _playlist_name(body):
-        if set(body) != {'name'}:
-            raise AuthError('Provide only a playlist name.')
-        name = body['name']
-        if not isinstance(name,str) or not 1 <= len(name.strip()) <= 60 or any(ord(c)<32 for c in name):
-            raise AuthError('Use a playlist name of 1-60 characters.')
-        return name.strip()
-
-    @staticmethod
-    def _known_playlist(playlist_id):
-        if not COLLECTOR:
-            raise AuthError('Collector not initialized.',503)
-        playlists = COLLECTOR.library().get('playlists', [])
-        if not any(isinstance(p,dict) and p.get('id') == playlist_id for p in playlists):
-            raise AuthError('Playlist not in saved library. Sync, then try again.',404)
-
-    def _playlist_save(self, playlist_id, body):
-        name = self._playlist_name(body)
-        if playlist_id != -1:
-            self._known_playlist(playlist_id)
-        result = bridge('POST','/api/playlists/save',{'id':playlist_id,'name':name},timeout=30)
-        self._agent_refreshed()
-        saved = result.get('result') if isinstance(result,dict) else None
-        playlist = {'id':saved.get('id'),'name':saved.get('name')} if isinstance(saved,dict) else None
-        return {'ok':True,'playlist':playlist}
-
-    def _playlist_table(self, playlist_id, body):
-        if set(body) != {'gameId','action'} or body.get('action') not in ('add','remove') or type(body.get('gameId')) is not int or not 0 < body['gameId'] <= 2147483647:
-            raise AuthError('Provide a gameId and an action of add or remove.')
-        self._known_playlist(playlist_id)
-        if not known_table(body['gameId']):
-            raise AuthError('Table not in saved library.',404)
-        if body['action'] == 'add':
-            bridge('POST', f"/api/playlists/{playlist_id}/{body['gameId']}", timeout=30)
-        else:
-            bridge('DELETE', f"/api/playlists/{playlist_id}/{body['gameId']}", timeout=30)
-        self._agent_refreshed()
-        return {'ok':True}
-
-    @staticmethod
-    def _agent_refreshed():
-        # Best effort: let the saved library reflect playlist changes.
-        try:
-            if COLLECTOR:
-                COLLECTOR.step(manual=True)
-        except Exception:
-            pass
 
     def do_POST(self):
         path = urlparse(self.path).path

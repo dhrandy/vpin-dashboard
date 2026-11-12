@@ -14,7 +14,7 @@ import server as s
 from auth import AuthStore,AuthError
 from collector import Collector
 
-LIBRARY={'ok':True,'tables':[{'gameId':11,'name':'Wheel of Fortune'},{'gameId':22,'name':'Jeopardy!'}],'scores':[],'playlists':[{'id':5,'name':'Favorites','gameIds':[11]}]}
+LIBRARY={'ok':True,'tables':[{'gameId':11,'name':'Wheel of Fortune','maker':'Stern','year':2007},{'gameId':22,'name':'Jeopardy!','maker':'Stern','year':2024},{'gameId':33,'name':'Simpsons','maker':'Data East','year':1990},{'gameId':44,'name':'Simpsons Pinball Party','maker':'Stern','year':2003}],'scores':[],'playlists':[{'id':5,'name':'Favorites','gameIds':[11]}]}
 
 class AgentKeyHttpTests(unittest.TestCase):
     @classmethod
@@ -55,7 +55,7 @@ class AgentKeyHttpTests(unittest.TestCase):
         code,_,data=self.agent('/api/library')
         self.assertEqual(code,200)
         payload=json.loads(data)
-        self.assertEqual([t['name'] for t in payload['tables']],['Wheel of Fortune','Jeopardy!'])
+        self.assertEqual([t['name'] for t in payload['tables']],['Wheel of Fortune','Jeopardy!','Simpsons','Simpsons Pinball Party'])
         self.assertEqual(payload['playlists'][0]['name'],'Favorites')
         self.assertTrue(payload['collection']['saved'])
         self.assertGreater(payload['collection']['capturedAt'],0)
@@ -67,15 +67,15 @@ class AgentKeyHttpTests(unittest.TestCase):
     def test_agent_key_cannot_reach_other_reads(self):
         for path in ['/api/details/11','/api/scorehistory/11','/api/thumb/11','/api/admin/users','/api/admin/agent-keys','/api/collection','/api/preferences','/api/favourites','/app.js','/']:
             self.assertEqual(self.agent(path)[0],404,path)
-    def test_agent_key_cannot_write_outside_playlists(self):
+    def test_agent_key_cannot_write_outside_themes(self):
         for path in ['/api/play','/api/exit','/api/preferences','/api/hidden','/api/favourites','/api/admin/users','/api/admin/agent-keys','/api/collection','/api/settings','/api/game-night','/api/night-themes','/api/cache-thumbs','/api/modal-cache','/api/status/dismiss','/api/auth/logout']:
             code,_,_=self.agent(path,'POST',{})
             self.assertIn(code,(401,404),path)
     def test_no_or_bad_key_rejected(self):
-        self.assertEqual(self.request('/api/agent/playlists','POST',{'name':'x'})[0],401)
+        self.assertEqual(self.request('/api/agent/night-themes','POST',{'action':'preview','id':None,'revision':0,'source':'a\nb'})[0],401)
         code,_,data=self.agent('/api/library',key='vpk_wrong')
         self.assertEqual(code,401)
-        self.assertEqual(self.agent('/api/agent/playlists','POST',{'name':'x'},key='vpk_wrong')[0],401)
+        self.assertEqual(self.agent('/api/agent/night-themes','POST',{'action':'preview','id':None,'revision':0,'source':'a\nb'},key='vpk_wrong')[0],401)
     def test_revoked_key_stops_working(self):
         key_id,key=s.AUTH.create_agent_key('temp')
         self.assertEqual(self.agent('/api/library',key=key)[0],200)
@@ -103,42 +103,44 @@ class AgentKeyHttpTests(unittest.TestCase):
             self.assertEqual(self.request('/api/admin/agent-keys','POST',body,self.admin,self.csrf)[0],400,body)
         self.assertEqual(self.request('/api/admin/agent-keys/999','POST',{'revoked':True},self.admin,self.csrf)[0],404)
         self.assertEqual(self.request('/api/admin/agent-keys/1','POST',{},self.admin,self.csrf)[0],400)
-    def test_playlist_create_validates_and_forwards_minimum(self):
-        with patch.object(s,'bridge',return_value={'ok':True,'result':{'id':7,'name':'Game Shows'}}) as upstream:
-            code,_,data=self.agent('/api/agent/playlists','POST',{'name':'Game Shows'})
-            self.assertEqual(code,200)
-            self.assertEqual(json.loads(data)['playlist'],{'id':7,'name':'Game Shows'})
-            args,kwargs=upstream.call_args
-            self.assertEqual(args[:2],('POST','/api/playlists/save'))
-            self.assertEqual(args[2],{'id':-1,'name':'Game Shows'})
-        with patch.object(s,'bridge',side_effect=AssertionError('Unexpected upstream')) as upstream:
-            for body in [{},{'name':''},{'name':'  '},{'name':'x'*61},{'name':'a\nb'},{'name':'ok','id':5},{'name':5}]:
-                self.assertEqual(self.agent('/api/agent/playlists','POST',body)[0],400,body)
-            upstream.assert_not_called()
-    def test_playlist_rename_requires_known_playlist(self):
-        with patch.object(s,'bridge',return_value={'ok':True,'result':{'id':5,'name':'New'}}) as upstream:
-            self.assertEqual(self.agent('/api/agent/playlists/5','POST',{'name':'New'})[0],200)
-            args,_=upstream.call_args
-            self.assertEqual(args[2],{'id':5,'name':'New'})
-            self.assertEqual(self.agent('/api/agent/playlists/999','POST',{'name':'New'})[0],404)
-    def test_playlist_table_add_and_remove(self):
-        with patch.object(s,'bridge',return_value={'ok':True}) as upstream:
-            self.assertEqual(self.agent('/api/agent/playlists/5/tables','POST',{'gameId':22,'action':'add'})[0],200)
-            self.assertEqual(upstream.call_args[0][:2],('POST','/api/playlists/5/22'))
-            self.assertEqual(self.agent('/api/agent/playlists/5/tables','POST',{'gameId':22,'action':'remove'})[0],200)
-            self.assertEqual(upstream.call_args[0][:2],('DELETE','/api/playlists/5/22'))
-        with patch.object(s,'bridge',side_effect=AssertionError('Unexpected upstream')) as upstream:
-            for body in [{'gameId':22},{'action':'add'},{'gameId':22,'action':'delete'},{'gameId':'22','action':'add'},{'gameId':True,'action':'add'},{'gameId':0,'action':'add'},{'gameId':22,'action':'add','extra':1}]:
-                self.assertEqual(self.agent('/api/agent/playlists/5/tables','POST',body)[0],400,body)
-            self.assertEqual(self.agent('/api/agent/playlists/5/tables','POST',{'gameId':999,'action':'add'})[0],404)
-            self.assertEqual(self.agent('/api/agent/playlists/999/tables','POST',{'gameId':22,'action':'add'})[0],404)
-            upstream.assert_not_called()
-    def test_bridge_failure_is_reported(self):
-        import urllib.error
-        with patch.object(s,'bridge',side_effect=urllib.error.HTTPError('u',500,'e',{},None)):
-            self.assertEqual(self.agent('/api/agent/playlists','POST',{'name':'Game Shows'})[0],502)
-        with patch.object(s,'bridge',side_effect=ConnectionError('down')):
-            self.assertEqual(self.agent('/api/agent/playlists','POST',{'name':'Game Shows'})[0],502)
+    def test_agent_playlist_routes_are_gone(self):
+        for path in ['/api/agent/playlists','/api/agent/playlists/5','/api/agent/playlists/5/tables']:
+            self.assertEqual(self.agent(path,'POST',{'name':'x','gameId':22,'action':'add'})[0],404,path)
+    def test_theme_preview_matches_unique_titles(self):
+        source='Game Shows\nWheel of Fortune\nJeopardy!\nNot A Real Table'
+        code,_,data=self.agent('/api/agent/night-themes','POST',{'action':'preview','id':None,'revision':0,'source':source})
+        self.assertEqual(code,200)
+        payload=json.loads(data)
+        self.assertEqual(payload['gameIds'],[11,22])
+        self.assertEqual([r['status'] for r in payload['report']],['matched','matched','not found'])
+        code,_,data=self.agent('/api/night-themes')
+        self.assertEqual(json.loads(data)['themes'],[])
+    def test_theme_json_source_and_ambiguity(self):
+        source=json.dumps({'name':'Narrowed','tables':[{'name':'Simpsons','maker':'Data East','year':1990}]})
+        code,_,data=self.agent('/api/agent/night-themes','POST',{'action':'preview','id':None,'revision':0,'source':source})
+        self.assertEqual(json.loads(data)['gameIds'],[33])
+        code,_,data=self.agent('/api/agent/night-themes','POST',{'action':'preview','id':None,'revision':0,'source':'Narrowed\nSimpsons'})
+        payload=json.loads(data)
+        self.assertEqual(payload['report'][0]['status'],'ambiguous')
+        self.assertEqual(payload['gameIds'],[])
+    def test_theme_save_then_list_and_revision(self):
+        source='Game Shows\nWheel of Fortune\nJeopardy!'
+        code,_,data=self.agent('/api/agent/night-themes','POST',{'action':'save','id':None,'revision':0,'source':source})
+        self.assertEqual(code,200)
+        saved=json.loads(data)
+        self.assertTrue(saved['id'].startswith('custom-'))
+        self.assertEqual(saved['gameIds'],[11,22])
+        code,_,data=self.agent('/api/night-themes')
+        themes=json.loads(data)['themes']
+        self.assertEqual(themes[0]['name'],'Game Shows')
+        self.assertEqual(themes[0]['revision'],1)
+        body={'action':'save','id':saved['id'],'revision':9,'source':source}
+        self.assertEqual(self.agent('/api/agent/night-themes','POST',body)[0],409)
+        body['revision']=themes[0]['revision']
+        self.assertEqual(self.agent('/api/agent/night-themes','POST',body)[0],200)
+    def test_theme_validation_and_no_delete(self):
+        for body in [{},{'action':'delete','id':None,'revision':0,'source':'a\nb'},{'action':'save','id':None,'revision':0,'source':'only one line'},{'action':'save','id':None,'revision':0,'source':''},{'action':'save','id':None,'source':'a\nb'},{'action':'save','id':None,'revision':'0','source':'a\nb'}]:
+            self.assertEqual(self.agent('/api/agent/night-themes','POST',body)[0],400,body)
 
 class AgentKeyStoreTests(unittest.TestCase):
     def setUp(self):

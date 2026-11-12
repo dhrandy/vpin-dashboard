@@ -89,6 +89,9 @@ function renderGameNight(){
   $('night-maker').hidden=true;
   $('night-preview-name').textContent=nightName(NIGHT_THEME);
   $('night-rule').textContent=NIGHT_THEME.startsWith('maker-')?'A random draw from this manufacturer, up to your cap. Known maker aliases are combined.':NIGHT_THEME.startsWith('decade-')?'Tables dated '+NIGHT_THEME.slice(7)+' through '+(Number(NIGHT_THEME.slice(7))+9)+'.':NIGHT_PLAYLISTS[NIGHT_THEME]?'Uses a cabinet playlist named '+NIGHT_PLAYLISTS[NIGHT_THEME].map(n=>'"'+n+'"').join(' or ')+'. Case and punctuation do not matter.':NIGHT_THEME.startsWith('custom-')?'Matches from an imported theme. Hidden and missing tables stay out.':NIGHT_RULES[NIGHT_THEME]||'';
+  const art=$('night-art'),artPool=nightPool(NIGHT_THEME).slice(0,3);
+  art.innerHTML=artPool.length?artPool.map(t=>`<div class="night-art-tile">${DATA.thumbsEnabled?`<img src="/api/thumb/${t.gameId}?v=2&r=${encodeURIComponent(t.mediaRevision||'')}" alt="" loading="lazy">`:''}<span>${esc(t.name)}</span></div>`).join(''):'<div class="night-art-icon"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg></div>';
+  art.querySelectorAll('img').forEach(img=>img.addEventListener('error',()=>img.remove()));
   const count=nightPool(NIGHT_THEME).length;
   $('night-cap').value=String(NIGHT_STATE.cap||10);$('night-cap').disabled=NIGHT_BUSY;
   $('night-start').disabled=NIGHT_BUSY||!count;

@@ -46,7 +46,7 @@ If you put a reverse proxy in front of the bridge, set `BRIDGE_TRUSTED_PROXIES` 
 - Tap a playfield in the details dialog to enlarge the existing 960px-wide cached detail image. Tap the image, the top-right X, or Esc to return. Table details also have a matching top-right X and a bottom Close button. No additional cabinet read or image copy is needed.
 - "No B2S or PUP" means the export explicitly reports neither a backglass nor a PUP pack. A reported PUP suppresses the flag. Unknown fields are not treated as absent. Details explain this is not proof of a launch error.
 - Phone/tablet hamburger menu and desktop sidebar. A round back-to-top arrow appears after scrolling down the Library, avoids Play buttons, and respects reduced-motion settings. Each user can turn it off in Settings.
-- Agent API keys in Admin > Agent access give a script or agent narrow access without a login: read the saved library (including playlists and snapshot age), cabinet status and game-night themes, and create, rename or add/remove tables in cabinet playlists. Keys cannot launch or exit tables, change settings, hide tables or manage users. Admins create and revoke keys; a key is shown once at creation, only its hash is stored, and revoking takes effect immediately. Presented wrong keys lock out per client address while valid keys are never slowed, and playlist writes are throttled per key. Agents authenticate with the `X-Api-Key` header, for example `curl -H "X-Api-Key: vpk_..." https://<dashboard-host>/api/library`. Playlist changes go through the bridge and need the cabinet on; reads serve the saved snapshot and work while the cabinet is off.
+- Agent API keys in Admin > Agent access give a script or agent narrow access without a login: read the saved library (including playlists and snapshot age), cabinet status and game-night themes, and preview or save imported Game night themes. Keys cannot launch or exit tables, change playlists or settings, hide tables or manage users, and never reach the cabinet. Admins create and revoke keys; a key is shown once at creation, only its hash is stored, and revoking takes effect immediately. Presented wrong keys lock out per client address while valid keys are never slowed, and writes are throttled per key. Agents authenticate with the `X-Api-Key` header, for example `curl -H "X-Api-Key: vpk_..." https://<dashboard-host>/api/library`. Theme imports use `POST /api/agent/night-themes` with the same body as the Game night import: `action` of `preview` or `save`, the theme text or JSON in `source`, plus `id` and `revision` when editing an existing imported theme. Reads serve the saved snapshot and work while the cabinet is off.
 
 The existing "Top rated" category means the ten highest numeric table scores, not user ratings. Scores from different games are not comparable ratings.
 
@@ -256,7 +256,10 @@ Game night makes a random list of distinct tables from your own library.
 Choose a Max tables cap of 10, 15 or 20 (default 10). The cap is saved per
 account and only affects the next Start night; changing it does not replace
 a current list or clear its checks.
-Choose a theme on the left (a dropdown on phones), then Start night. The six
+Choose a theme on the left (a dropdown on phones), then Start night. The
+selected theme card shows small previews of up to three tables in the theme,
+using the same cached playfield pictures as the library; an empty theme shows
+a simple icon instead. The six
 largest manufacturer pools appear as individual themes, computed from visible
 tables. Known maker aliases are combined; Original and unknown makers are
 excluded. Count ties break alphabetically. Originals night is an additional
