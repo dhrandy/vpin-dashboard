@@ -35,11 +35,15 @@ let STATUS_DETAILS=false;
 let SHOW_PLAY_TIME=true;
 let BACK_TO_TOP=true;
 let BROWSE = "maker";
+let SIDE_COLLAPSED = {};
+try { SIDE_COLLAPSED = JSON.parse(localStorage.getItem('vpin-side-collapsed') || '{}') || {}; } catch (e) { SIDE_COLLAPSED = {}; }
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US"));
 const playCountLabel = (t) => Number.isInteger(t.playCount) && t.playCount >= 0 ? `${fmt(t.playCount)} play${t.playCount === 1 ? "" : "s"}` : "Plays unknown";
 const totalTimeLabel = t => Number.isInteger(t.timePlayedSecs) && t.timePlayedSecs>=0 ? (t.timePlayedSecs>0 && t.timePlayedSecs<60?"<1":fmt(Math.floor(t.timePlayedSecs/60)))+" min total" : "Time unavailable";
 const tableMeta = (t) => [...[t.maker, t.year].filter(Boolean), playCountLabel(t)].join(" · ");
+const modalPlayTime = (t) => { const base = totalTimeLabel(t); const avg = Number.isInteger(t.timePlayedSecs) && t.timePlayedSecs > 0 && t.playCount > 0 ? Math.round(t.timePlayedSecs / t.playCount / 60) : 0; return avg >= 1 ? base + ` · ~${avg} min a play` : base; };
+const lastPlayedLine = (t) => { const d = t.lastPlayedAt && Date.parse(t.lastPlayedAt); return Number.isFinite(d) ? `<p class="muted detail-added">Last played ${esc(new Date(d).toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"}))}</p>` : ""; };
 const addedLine = (t) => { const d = t.addedAt && Date.parse(t.addedAt); return Number.isFinite(d) ? `<p class="muted detail-added">Added ${esc(new Date(d).toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"}))}</p>` : ""; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -108,16 +112,6 @@ $('hidden-unhide-selected').addEventListener('click',async()=>{
   const ids=[...document.querySelectorAll('[data-hidden-check]')].filter(x=>x.checked).map(x=>Number(x.dataset.hiddenCheck));
   for(const id of ids){await toggleHidden(id);}
 });
-function bindCardMenus(root){
-  root.querySelectorAll('.card-menu>button').forEach(btn=>btn.addEventListener('click',event=>{
-    event.stopPropagation();
-    const list=btn.parentElement.querySelector('.card-menu-list');
-    const opening=list.hidden;
-    document.querySelectorAll('.card-menu-list').forEach(l=>{l.hidden=true;l.parentElement.querySelector('button').setAttribute('aria-expanded','false');});
-    list.hidden=!opening;btn.setAttribute('aria-expanded',String(opening));
-  }));
-}
-document.addEventListener('click',event=>{if(!event.target.closest('.card-menu'))document.querySelectorAll('.card-menu-list').forEach(l=>{l.hidden=true;l.parentElement.querySelector('button').setAttribute('aria-expanded','false');});});
 async function toggleFavourite(gameId){
   if(FAVOURITE_BUSY)return;FAVOURITE_BUSY=true;document.querySelectorAll('[data-heart]').forEach(b=>b.disabled=true);
   try{const result=await apiPost('/api/favourites',{gameId,saved:!FAVOURITES.has(gameId)});FAVOURITES=new Set(result.gameIds);}
@@ -218,22 +212,29 @@ function renderSidebar(M) {
       <span class="lbl">${letter !== undefined ? `<span class="letter">${esc(letter)}</span>` : ""}<span>${esc(label)}</span></span>
       ${count !== undefined ? `<span class="cnt">${count}</span>` : ""}
     </button>`;
-  let html = `<p class="side-title">Library</p>`;
-  html += btn("all", "All tables", M.countFor("all"));
-  html += btn("cat:favourites", "Favorites", M.countFor("cat:favourites"));
-  html += btn("cat:cabinet-favourites", "Cabinet favorites", M.countFor("cat:cabinet-favourites"));
-  html += btn("cat:top-rated", "Top rated", M.countFor("cat:top-rated"));
-  html += btn("cat:recently-played", "Recently played", M.countFor("cat:recently-played"));
-  html += btn("cat:recently-added", "Recently added", M.countFor("cat:recently-added"));
-  html += btn("cat:needs-attention", "Needs attention", M.countFor("cat:needs-attention"));
-  html += btn("with-scores", "With scores", M.countFor("with-scores"));
-  html += btn("no-scores", "No scores yet", M.countFor("no-scores"));
-  html += `<p class="side-title">Smart playlists</p>`;
-  for (const [key, label] of SMART) { if(key === "smart:vpw" && !SHOW_VPW) continue; html += btn(key, label, M.countFor(key)); }
+  const CHEV = '<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>';
+  const section = (id, title, body) => {
+    const collapsed = SIDE_COLLAPSED[id] === true;
+    return `<button type="button" class="side-title side-toggle" data-side-toggle="${id}" aria-expanded="${String(!collapsed)}"><span>${esc(title)}</span>${CHEV}</button><div class="side-body"${collapsed ? " hidden" : ""}>${body}</div>`;
+  };
+  let libraryBody = btn("all", "All tables", M.countFor("all"));
+  libraryBody += btn("cat:favourites", "Favorites", M.countFor("cat:favourites"));
+  libraryBody += btn("cat:cabinet-favourites", "Cabinet favorites", M.countFor("cat:cabinet-favourites"));
+  libraryBody += btn("cat:top-rated", "Top rated", M.countFor("cat:top-rated"));
+  libraryBody += btn("cat:recently-played", "Recently played", M.countFor("cat:recently-played"));
+  libraryBody += btn("cat:recently-added", "Recently added", M.countFor("cat:recently-added"));
+  libraryBody += btn("cat:needs-attention", "Needs attention", M.countFor("cat:needs-attention"));
+  libraryBody += btn("with-scores", "With scores", M.countFor("with-scores"));
+  libraryBody += btn("no-scores", "No scores yet", M.countFor("no-scores"));
+  let html = section("library", "Library", libraryBody);
+  let smartBody = "";
+  for (const [key, label] of SMART) { if(key === "smart:vpw" && !SHOW_VPW) continue; smartBody += btn(key, label, M.countFor(key)); }
+  html += section("smart", "Smart playlists", smartBody);
   const playlists = DATA.playlists.filter((p) => !HIDE_EMPTY_PLAYLISTS || (p.gameIds || []).length > 0);
   if (playlists.length) {
-    html += `<p class="side-title">Your playlists</p>`;
-    for (const p of playlists) html += btn("playlist:" + p.name, p.name, (p.gameIds || []).length);
+    let playlistBody = "";
+    for (const p of playlists) playlistBody += btn("playlist:" + p.name, p.name, (p.gameIds || []).length);
+    html += section("playlists", "Your playlists", playlistBody);
   }
   const makers = new Map();
   const decades = new Map();
@@ -242,19 +243,30 @@ function renderSidebar(M) {
     if (t.year) { const d = Math.floor(t.year / 10) * 10; decades.set(d, (decades.get(d) || 0) + 1); }
   }
   if (makers.size || decades.size) {
-    html += `<div class="browse-head"><p class="side-title">Browse by</p>
+    const browseCollapsed = SIDE_COLLAPSED.browse === true;
+    html += `<div class="browse-head"><button type="button" class="side-title side-toggle" data-side-toggle="browse" aria-expanded="${String(!browseCollapsed)}"><span>Browse by</span>${CHEV}</button>
       <select id="browse-by" aria-label="Browse tables by">
         <option value="maker" ${BROWSE === "maker" ? "selected" : ""}>Maker</option>
         <option value="decade" ${BROWSE === "decade" ? "selected" : ""}>Decade</option>
-      </select></div>`;
+      </select></div><div class="side-body"${browseCollapsed ? " hidden" : ""}>`;
     if (BROWSE === "maker") {
       for (const [m, c] of [...makers.entries()].sort((a, b) => b[1] - a[1])) html += btn("maker:" + m, m, c, m.charAt(0).toUpperCase());
     } else {
       for (const [d, c] of [...decades.entries()].sort((a, b) => a[0] - b[0])) html += btn("decade:" + d, "The " + d + "s", c, String(d).slice(2, 3));
     }
+    html += `</div>`;
   }
   $("sidebar").innerHTML = html;
   $("sidebar").querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { selectFilter(b.dataset.filter); }));
+  $("sidebar").querySelectorAll("[data-side-toggle]").forEach((b) => b.addEventListener("click", () => {
+    const body = b.parentElement.classList.contains("browse-head") ? b.parentElement.nextElementSibling : b.nextElementSibling;
+    if (!body || !body.classList.contains("side-body")) return;
+    const collapsed = !body.hidden;
+    body.hidden = collapsed;
+    b.setAttribute("aria-expanded", String(!collapsed));
+    SIDE_COLLAPSED[b.dataset.sideToggle] = collapsed;
+    try { localStorage.setItem('vpin-side-collapsed', JSON.stringify(SIDE_COLLAPSED)); } catch (e) {}
+  }));
   const sel = $("browse-by");
   if (sel) sel.addEventListener("change", () => { BROWSE = sel.value; renderLibrary(); });
 
@@ -384,12 +396,9 @@ function renderLibrary() {
       </div>
       <div class="cardfoot">
         <span class="top">${t.bestScore !== null ? `Top${t.bestInitials ? " · " + esc(t.bestInitials) : ""} · <b>${fmt(t.bestScore)}</b>` : "No scores yet"}</span>
-        <div class="card-menu"><button type="button" data-menu="${t.gameId}" aria-label="More actions for ${esc(t.name)}" aria-haspopup="menu" aria-expanded="false">⋯</button><div class="card-menu-list" hidden role="menu"><button type="button" data-hide="${t.gameId}" role="menuitem">${HIDDEN.has(t.gameId) ? "Unhide table" : "Hide table"}</button></div></div>
       </div>
     </article>`).join("");
   bindHearts($("grid"));
-  bindCardMenus($("grid"));
-  $("grid").querySelectorAll("[data-hide]").forEach((b) => b.addEventListener("click", () => toggleHidden(Number(b.dataset.hide))));
   renderHiddenPanel();
   document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openDetail(Number(b.dataset.open))));
   document.querySelectorAll(".artimg").forEach(i=>i.addEventListener("error",()=>i.remove(),{once:true}));
@@ -527,7 +536,7 @@ async function openDetail(gameId) {
       ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
     </div>
     <h2 style="margin:0;text-transform:uppercase">${esc(t.name)}</h2>
-    <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}</p>${heartButton(t)}</div>${addedLine(t)}
+    <div class="detail-meta"><p class="muted">${esc(tableMeta(t))}${SHOW_PLAY_TIME ? ` · <span style="white-space:nowrap">${esc(modalPlayTime(t))}</span>` : ""}</p>${heartButton(t)}</div>${addedLine(t)}${lastPlayedLine(t)}
     ${(t.badges || []).length ? `<div class="badges">${t.badges.map((b) => `<span class="bdg">${esc(b)}</span>`).join("")}</div>` : ""}
     ${(t.attentionReasons||[]).length?`<section class="attention-note"><h3>Cabinet checks</h3><p>${esc(t.attentionReasons.join('; '))}</p><p class="muted">The cabinet export reports neither a directB2S backglass file nor a PUP pack. Some tables need neither. This is not a confirmed launch error.</p></section>`:''}
     <h3 style="text-transform:uppercase;font-size:13px;color:var(--dim)">Scores on this table</h3>
@@ -577,9 +586,16 @@ function renderModalData(kind,gameId,res){
         if (seen.has(signature)) return false;
         seen.add(signature); return true;
       }).slice(0, 5);
-    node.innerHTML = snapshots.length ? snapshots.map((h, i) => `<details class="history-entry" ${i === 0 ? "open" : ""}><summary>${esc(new Date(h.createdAt).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit", hour12:true}))}</summary>${h.scores.filter((s) => Number.isFinite(Number(s.score)) && Number(s.score) > 0).map((s) => `<div class="row"><span>${esc(s.label || (s.position ? "#" + s.position : "Score"))} · ${esc(s.playerInitials || "Unknown")}</span><strong>${fmt(s.score)}${esc(s.suffix || "")}</strong></div>`).join("") || '<p class="muted">No numeric scores in this snapshot.</p>'}</details>`).join("") : "No saved score changes reported for this table.";
+    const snapTime = (value, withSeconds) => new Date(value).toLocaleString(undefined, {month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit", ...(withSeconds ? {second:"2-digit"} : {}), hour12:true});
+    const minuteLabels = snapshots.map((h) => snapTime(h.createdAt, false));
+    const sharedMinutes = new Set(minuteLabels.filter((l, i) => minuteLabels.indexOf(l) !== i));
+    node.innerHTML = snapshots.length ? snapshots.map((h, i) => {
+      const rows = h.scores.filter((s) => Number.isFinite(Number(s.score)) && Number(s.score) > 0);
+      const sameLabel = rows.length > 1 && rows.every((s) => (s.label || "Score") === (rows[0].label || "Score"));
+      return `<details class="history-entry" ${i === 0 ? "open" : ""}><summary>${esc(sharedMinutes.has(minuteLabels[i]) ? snapTime(h.createdAt, true) : minuteLabels[i])}</summary>${rows.map((s) => `<div class="row"><span>${Number.isFinite(Number(s.position)) ? "#" + Number(s.position) + " · " : ""}${sameLabel ? "" : esc(s.label || "Score") + " · "}${esc(s.playerInitials || "Unknown")}</span><strong>${fmt(s.score)}${esc(s.suffix || "")}</strong></div>`).join("") || '<p class="muted">No numeric scores in this snapshot.</p>'}</details>`;
+    }).join("") : "No saved score changes reported for this table.";
   }
-  const note=document.createElement('p');note.className='panel-note';note.textContent=modalCacheNote(res);node.prepend(note);
+  if(kind!=='details'){const note=document.createElement('p');note.className='panel-note';note.textContent=modalCacheNote(res);node.prepend(note);}
 }
 async function loadModalData(kind,gameId){
   const generation=MODAL_GENERATION;
@@ -702,7 +718,7 @@ function renderSyncAttention(){
   $('sync-status-toggle').setAttribute('aria-label',description+'. Show sync status');$('sync-status-toggle').title=description;
   $('sync-status-empty').hidden=values.some(s=>s.total||s.error);
 }
-function setSyncStatus(open){const mobile=matchMedia('(max-width:1099px)').matches;$('sync-status-panel').hidden=!(open||mobile);$('sync-status-toggle').setAttribute('aria-expanded',String(open||mobile));}
+function setSyncStatus(open){$('sync-status-panel').hidden=false;$('sync-status-toggle').setAttribute('aria-expanded','true');}
 matchMedia('(max-width:1099px)').addEventListener('change',()=>setSyncStatus(false));
 setSyncStatus(false);
 $('sync-status-toggle').addEventListener('click',()=>setSyncStatus($('sync-status-panel').hidden));
@@ -714,7 +730,7 @@ async function updateModalCache(){
   try{
     const response=await fetch('/api/modal-cache');if(!response.ok)return;
     const state=await response.json(),node=$('modal-cache-progress');SYNC_STATUS.tables=state;renderSyncAttention();node.style.display=state.total?'block':'none';
-    node.textContent=state.running?`${state.paused?'Table data cache paused while cabinet is busy or offline':'Saving table details and history'} ${state.done}/${state.total}`:`Table data saved: ${state.done-state.failed}/${state.total}${state.failed?' · '+state.failed+' unavailable; retry on Sync':''}${state.incomplete?' · incomplete; tap Sync to continue':''}`;
+    node.textContent=state.running?`${state.paused?'Table data cache paused while cabinet is busy or offline':'Saving table details and history'} ${state.done}/${state.total}`:`Table data saved: ${state.done-state.failed}/${state.total}${state.failed?' · '+state.failed+' unavailable; retry on Sync':''}${state.incomplete?' · incomplete; run Sync from Settings to continue':''}`;
     if(state.running&&!modalCachePoll)modalCachePoll=setInterval(updateModalCache,5000);
     if(!state.running&&modalCachePoll){clearInterval(modalCachePoll);modalCachePoll=null;}
   }catch{SYNC_STATUS.tables={error:true};renderSyncAttention();const node=$('modal-cache-progress');node.style.display='block';node.textContent='Table data cache progress unavailable.';}
@@ -762,6 +778,7 @@ function switchTab(which) {
   $("tab-library").setAttribute("aria-pressed", String(which === "library"));
   $("tab-stats").setAttribute("aria-pressed", String(which === "stats"));
   if (which === "stats") renderStats();
+  try{localStorage.setItem('vpin-view',which);}catch(e){}
 }
 ["search", "sort"].forEach((id) => $(id).addEventListener("input", renderLibrary));
 
@@ -883,9 +900,14 @@ $('branding-form').addEventListener('submit',async e=>{
   if(document.readyState==="loading")await new Promise(resolve=>document.addEventListener("DOMContentLoaded",resolve,{once:true}));
   const state=await fetch('/api/auth/status').then(r=>r.json());if(!state.user){location.replace('/login');return;}
   CURRENT_USER=state.user;CSRF=state.user.csrf;const admin=CURRENT_USER.role==='admin';
-  $('tab-admin').hidden=!admin;$('sync-btn').hidden=!admin;$('sync-tools').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
+  $('tab-admin').hidden=!admin;$('settings-sync').hidden=!admin;$('account-name').textContent=CURRENT_USER.username+' · '+CURRENT_USER.role;
   try{await loadNight();}catch(e){nightError(e);}
   await loadPreferences();await loadBranding();if(admin)updateImageCache();loadInstructions();await load(false);setInterval(()=>{if(!document.hidden && navigator.onLine!==false)load(false);},30000);
+  const savedView=localStorage.getItem('vpin-view');
+  if(savedView==='night'&&NIGHT_STATE&&NIGHT_STATE.enabled)switchTab('night');
+  else if(savedView==='admin'&&admin)switchTab('admin');
+  else if(savedView==='stats'||savedView==='settings')switchTab(savedView);
+  else if(savedView==='instructions'&&SHOW_INSTRUCTIONS)switchTab('instructions');
 })().catch(error=>showBanner(error.message||'Dashboard could not be loaded. Refresh to try again.'));
 
 $('playfield-lightbox').addEventListener('click',e=>{if(e.target===$('playfield-lightbox'))e.target.close();});
