@@ -16,6 +16,7 @@ window.fetch = async (url, options={}) => {
   return response;
 };
 let DATA = { tables: [], scores: [], playlists: [], thumbsEnabled: false, topTables: [], topTablesTotal: 0 };
+let CURRENT_ROWS = [];
 let STATUS = { state: "unknown", gamePlaying: false, playingText: null };
 let FILTER = "all";
 let FAVOURITES=new Set();
@@ -380,6 +381,7 @@ function renderLibrary() {
   empty.style.display = rows.length === 0 ? "block" : "none";
   if (rows.length === 0) $("empty-title").textContent = "No tables match that search and filter";
   const canPlay = CURRENT_USER?.role === "admin" && STATUS.state === "online" && !STATUS.gamePlaying;
+  CURRENT_ROWS = rows.map((t) => t.gameId);
   $("grid").innerHTML = rows.map((t) => `
     <article class="card${HIDDEN.has(t.gameId) ? " ishidden" : ""}">
       <div class="artwrap"><button class="art" data-open="${t.gameId}" aria-label="View details for ${esc(t.name)}">
@@ -525,6 +527,39 @@ function renderStats() {
   });
 }
 
+function detailNavList(){return CURRENT_ROWS.length?CURRENT_ROWS:DATA.tables.map((t)=>t.gameId);}
+function navButtonsHtml(gameId){
+  const list=detailNavList();const i=list.indexOf(gameId);
+  if(i<0||list.length<2)return "";
+  const chev=(p)=>`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${p}"/></svg>`;
+  return `<button type="button" class="detail-nav detail-prev" data-nav="-1" aria-label="Previous table" title="Previous table" ${i<=0?"disabled":""}>${chev("M15 5L8 12L15 19")}</button><button type="button" class="detail-nav detail-next" data-nav="1" aria-label="Next table" title="Next table" ${i>=list.length-1?"disabled":""}>${chev("M9 5L16 12L9 19")}</button>`;
+}
+function addDetailSwipe(node){
+  if(!node||node.dataset.swipeBound)return;node.dataset.swipeBound="1";
+  let sx=0,sy=0;
+  node.addEventListener("touchstart",(e)=>{if(e.touches.length!==1)return;sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+  node.addEventListener("touchend",(e)=>{if(!sx)return;const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;sx=0;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5)stepDetail(dx<0?1:-1);},{passive:true});
+}
+function openLightbox(t){
+  const box=$("playfield-lightbox");
+  box.innerHTML=`<button class="lightbox-close modal-close" type="button" aria-label="Close enlarged playfield" title="Close enlarged playfield"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>${navButtonsHtml(t.gameId)}`;
+  box.querySelector(".lightbox-close").addEventListener("click",()=>box.close());
+  box.querySelector(".lightbox-image").addEventListener("click",()=>box.close());
+  box.querySelector(".lightbox-image img")?.addEventListener("error",()=>box.close(),{once:true});
+  box.querySelectorAll(".detail-nav").forEach((b)=>b.addEventListener("click",(e)=>{e.stopPropagation();stepDetail(Number(b.dataset.nav));}));
+  addDetailSwipe(box);
+  if(!box.open)box.showModal();
+}
+async function stepDetail(dir){
+  const d=$("detail");if(!d.open)return;
+  const list=detailNavList();const i=list.indexOf(Number(d.dataset.gameId));
+  if(i<0)return;
+  const next=list[i+dir];if(next===undefined)return;
+  const box=$("playfield-lightbox");const enlarge=box.open;
+  if(enlarge)box.close();
+  await openDetail(next);
+  if(enlarge){const t=DATA.tables.find((x)=>x.gameId===next);if(t&&DATA.thumbsEnabled&&d.querySelector(".enlarge-playfield"))openLightbox(t);}
+}
 async function openDetail(gameId) {
   const t = DATA.tables.find((x) => x.gameId === gameId);
   if (!t) return;
@@ -532,6 +567,7 @@ async function openDetail(gameId) {
   const d = $("detail");
   d.innerHTML = `
     <div class="detail-media ${DATA.thumbsEnabled?'':'no-preview'}">
+      ${navButtonsHtml(gameId)}
       <button id="detail-close-top" class="modal-close" type="button" aria-label="Close table details" title="Close table details"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       ${DATA.thumbsEnabled ? `<button type="button" class="enlarge-playfield" aria-label="Enlarge playfield of ${esc(t.name)}" title="Tap to enlarge"><img class="dimg" src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"><span>Tap to enlarge</span></button>` : ""}
     </div>
@@ -549,9 +585,11 @@ async function openDetail(gameId) {
     <button id="detail-close" class="modal-action">Close</button>`;
   MODAL_GENERATION++;MODAL_UNSAVED={};
   d.dataset.gameId = String(gameId);
-  d.showModal();bindHearts(d);
+  if(!d.open)d.showModal();bindHearts(d);
+  d.querySelectorAll(".detail-nav").forEach((b)=>b.addEventListener("click",(e)=>{e.stopPropagation();stepDetail(Number(b.dataset.nav));}));
+  addDetailSwipe(d.querySelector(".detail-media"));
   d.querySelector(".dimg")?.addEventListener("error",e=>{e.target.closest(".detail-media").classList.add("no-preview");e.target.closest("button").remove();},{once:true});
-  d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>{const box=$('playfield-lightbox');box.innerHTML=`<button class="lightbox-close modal-close" type="button" aria-label="Close enlarged playfield" title="Close enlarged playfield"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button class="lightbox-image" type="button" aria-label="Close enlarged playfield of ${esc(t.name)}"><img src="/api/thumb/${t.gameId}?full=1&v=2" alt="Playfield of ${esc(t.name)}"></button>`;box.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>box.close()));box.showModal();});
+  d.querySelector(".enlarge-playfield")?.addEventListener("click",()=>openLightbox(t));
   loadScoreHistory(gameId);
   $("detail-hide").addEventListener("click", () => toggleHidden(gameId));
   $("detail-close").addEventListener("click", () => d.close());
@@ -724,6 +762,11 @@ setSyncStatus(false);
 $('sync-status-toggle').addEventListener('click',()=>setSyncStatus($('sync-status-panel').hidden));
 document.addEventListener('click',event=>{if(!event.target.closest('.sync-tools'))setSyncStatus(false);});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')setSyncStatus(false);});
+document.addEventListener('keydown',(event)=>{
+  if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))return;
+  if($('playfield-lightbox').open||$('detail').open){event.preventDefault();stepDetail(event.key==='ArrowRight'?1:-1);}
+});
 let modalCachePoll=null;
 async function updateModalCache(){
   if(document.hidden||navigator.onLine===false)return;
