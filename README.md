@@ -26,6 +26,20 @@ This split exists on purpose:
 
 If you put a reverse proxy in front of the bridge, set `BRIDGE_TRUSTED_PROXIES` on the bridge to your proxy's addresses so client lockouts count real callers instead of the proxy itself.
 
+## Screenshots
+
+The library at desktop width: playfield previews, search, badge filters, collapsible sidebar playlists and table cards with play counts, total time and top scores.
+
+![Library grid at desktop width](docs/images/library-desktop.png)
+
+Table details: playfield preview, play stats, saved highscore snapshots and cabinet metadata.
+
+![Table details dialog](docs/images/table-detail.png)
+
+On a phone: compact header, filters and two-column cards.
+
+![Library on a phone](docs/images/library-phone.png)
+
 ## Features
 
 - Library with playfield previews, search, filters, full table names, play counts and high scores.
