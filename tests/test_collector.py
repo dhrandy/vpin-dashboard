@@ -141,7 +141,7 @@ class Tests(unittest.TestCase):
   self.assertEqual(len(days),91)
   self.assertEqual(sum(d['plays'] for d in days),15)
   import time as _t
-  today=_t.strftime('%Y-%m-%d',_t.localtime(self.t))
+  today=self.c._stat_local_date(self.t).isoformat()
   self.assertEqual({d['date']:d['plays'] for d in days}[today],15)
   # Whole weeks: first day is a Monday.
   first=days[0]['date']
@@ -154,4 +154,102 @@ class Tests(unittest.TestCase):
   self.data={'ok':True,'tables':[{'gameId':1,'playCount':0}],'scores':[],'playlists':[]}
   self.c.step(manual=True)  # playCount dropped: no negative plays
   self.assertEqual(sum(d['plays'] for d in self.c.plays_by_day()),0)
+ def test_stats_default_is_server_clock(self):
+  self.assertIsNone(self.c._stat_tz)
+  self.assertFalse(self.c._eastern_builtin)
+ def test_plays_by_day_buckets_in_stats_timezone(self):
+  # 11:27 PM at UTC-5 is already the next day in UTC: evening plays belong to the local day.
+  import calendar
+  os.environ['VPIN_TZ']='Etc/GMT+5'  # fixed UTC-5, no city name
+  try:
+   c=Collector(tempfile.mkdtemp(),self.status,self.library,clock=lambda:self.t)
+   self.t=float(calendar.timegm((2026,11,14,3,27,0)))  # 10:27 PM at UTC-5, Nov 13
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':10}],'scores':[],'playlists':[]}
+   c.step()
+   self.advance(3600)  # 11:27 PM at UTC-5 Nov 13 = 4:27 AM UTC Nov 14
+   self.assertEqual(c._stat_local_date(self.t).isoformat(),'2026-11-13')
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':24}],'scores':[],'playlists':[]}
+   c.step(manual=True)
+   days={d['date']:d['plays'] for d in c.plays_by_day()}
+   self.assertEqual(days['2026-11-13'],14)
+   self.assertEqual(days['2026-11-14'],0)
+  finally:
+   del os.environ['VPIN_TZ']
+ def test_plays_by_week_buckets_in_stats_timezone(self):
+  import calendar
+  os.environ['VPIN_TZ']='Etc/GMT+5'
+  try:
+   c=Collector(tempfile.mkdtemp(),self.status,self.library,clock=lambda:self.t)
+   self.t=float(calendar.timegm((2026,11,14,3,27,0)))
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':10}],'scores':[],'playlists':[]}
+   c.step()
+   self.advance(3600)
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':24}],'scores':[],'playlists':[]}
+   c.step(manual=True)
+   weeks=c.plays_by_week()
+   self.assertEqual(weeks[-1]['plays'],14)
+   self.assertEqual(weeks[-1]['week'],'Nov 9')
+  finally:
+   del os.environ['VPIN_TZ']
+ def test_builtin_eastern_used_when_tzdata_missing(self):
+  # Slim images ship no tzdata: the one-zone builtin rules must take over.
+  import sys, calendar
+  os.environ['VPIN_TZ']='America/New_York'
+  saved=sys.modules.get('zoneinfo')
+  sys.modules['zoneinfo']=None  # make the zoneinfo import fail
+  try:
+   c=Collector(tempfile.mkdtemp(),self.status,self.library,clock=lambda:self.t)
+   self.assertTrue(c._eastern_builtin)
+   ts=float(calendar.timegm((2026,11,14,4,27,0)))  # 11:27 PM EST Nov 13
+   self.assertEqual(c._stat_local_date(ts).isoformat(),'2026-11-13')
+   ts=float(calendar.timegm((2026,7,14,4,27,0)))   # 12:27 AM EDT Jul 14
+   self.assertEqual(c._stat_local_date(ts).isoformat(),'2026-07-14')
+  finally:
+   if saved is None: sys.modules.pop('zoneinfo',None)
+   else: sys.modules['zoneinfo']=saved
+   del os.environ['VPIN_TZ']
+ def test_vpin_tz_override(self):
+  try:
+   from zoneinfo import ZoneInfo
+   ZoneInfo('UTC')
+  except Exception:
+   self.skipTest('no tzdata on this host')
+  import calendar
+  os.environ['VPIN_TZ']='UTC'
+  try:
+   c=Collector(tempfile.mkdtemp(),self.status,self.library,clock=lambda:self.t)
+   self.t=float(calendar.timegm((2026,11,14,3,27,0)))
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':10}],'scores':[],'playlists':[]}
+   c.step()
+   self.advance(3600)
+   self.data={'ok':True,'tables':[{'gameId':1,'playCount':24}],'scores':[],'playlists':[]}
+   c.step(manual=True)
+   days={d['date']:d['plays'] for d in c.plays_by_day()}
+   self.assertEqual(days['2026-11-14'],14)
+   self.assertEqual(days['2026-11-13'],0)
+  finally:
+   del os.environ['VPIN_TZ']
+ def test_invalid_vpin_tz_falls_back_to_server_clock(self):
+  os.environ['VPIN_TZ']='Mars/Olympus'
+  try:
+   c=Collector(tempfile.mkdtemp(),self.status,self.library,clock=lambda:self.t)
+   self.assertIsNone(c._stat_tz)
+   self.assertFalse(c._eastern_builtin)
+  finally:
+   del os.environ['VPIN_TZ']
+ def test_builtin_eastern_matches_zoneinfo(self):
+  try:
+   from zoneinfo import ZoneInfo
+   tz=ZoneInfo('America/New_York')
+  except Exception:
+   self.skipTest('no tzdata on this host')
+  import calendar
+  from datetime import datetime as dt, timezone
+  from collector import _eastern_dst
+  t0=calendar.timegm((2026,1,1,0,0,0))
+  for h in range(0,8784,6):  # offset parity with the IANA database across all of 2026
+   ts=t0+h*3600
+   zoff=dt.fromtimestamp(ts,timezone.utc).astimezone(tz).utcoffset().total_seconds()
+   boff=-14400 if _eastern_dst(ts) else -18000
+   self.assertEqual(zoff,boff,f'offset mismatch at epoch {ts}')
 if __name__=='__main__':unittest.main(verbosity=2)

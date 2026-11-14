@@ -15,8 +15,11 @@ services:
       # a video, so nothing else is needed for the pictures.
       # The app files come from the public dhrandy/vpin-dashboard
       # repo, which clones with no token or sign-in.
+      # VPIN_TZ is the timezone for the play stats day and week
+      # buckets (IANA name). Leave unset to use the server clock.
       VPIN_BRIDGE_URL: ${VPIN_BRIDGE_URL}
       VPIN_API_KEY: ${VPIN_API_KEY}
+      VPIN_TZ: ${VPIN_TZ}
       GIT_REPO: ${GIT_REPO}
       GIT_BRANCH: ${GIT_BRANCH}
       PORT: "8080"

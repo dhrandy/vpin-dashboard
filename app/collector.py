@@ -7,6 +7,38 @@ import threading
 import time
 import zlib
 from contextlib import contextmanager
+from datetime import date, datetime, timedelta
+
+
+def _eastern_dst(ts):
+    """US Eastern daylight time (post-2007 rules) for a UTC epoch, no tzdata.
+    DST starts the second Sunday of March at 2:00 standard (7:00 UTC) and ends
+    the first Sunday of November at 2:00 daylight (6:00 UTC)."""
+    u = datetime.utcfromtimestamp(ts)
+    mar = datetime(u.year, 3, 8)
+    start = mar + timedelta(days=(6 - mar.weekday()) % 7, hours=7)
+    nov = datetime(u.year, 11, 1)
+    end = nov + timedelta(days=(6 - nov.weekday()) % 7, hours=6)
+    return start <= u < end
+
+
+def _load_stat_tz():
+    """Timezone for play-stat day/week buckets: VPIN_TZ, default the server
+    clock. Slim containers ship no tzdata, so the builtin Eastern rules cover
+    that one zone; any other unresolvable zone falls back to the server clock
+    with a one-line log."""
+    name = os.environ.get('VPIN_TZ') or ''
+    if not name:
+        return None, False
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name), False
+    except Exception:
+        pass
+    if name == 'America/New_York':
+        return None, True
+    print(f'[collector] VPIN_TZ {name!r} unavailable without tzdata; bucketing play stats in server local time', flush=True)
+    return None, False
 
 
 class Collector:
@@ -27,6 +59,7 @@ class Collector:
         self.last_manual = 0
         self.catch_up = True
         self.thread = None
+        self._stat_tz, self._eastern_builtin = _load_stat_tz()
         with self.db() as db:
             db.execute('PRAGMA auto_vacuum=INCREMENTAL')
             db.executescript('''
@@ -193,10 +226,34 @@ class Collector:
         # make fixed 7-day offsets drift an hour off the bucket boundaries.
         return points
 
-    @staticmethod
-    def _monday_of(ts):
+    def _stat_local_date(self, ts):
+        """Calendar date of an epoch in the stats timezone (VPIN_TZ)."""
+        if self._eastern_builtin:
+            off = -14400 if _eastern_dst(ts) else -18000
+            return datetime.utcfromtimestamp(ts + off).date()
+        if self._stat_tz is not None:
+            return datetime.fromtimestamp(ts, self._stat_tz).date()
         lt = time.localtime(ts)
-        return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
+        return date(lt.tm_year, lt.tm_mon, lt.tm_mday)
+
+    def _play_days(self, weeks):
+        """(ordered day dates, ISO-date -> plays) for whole weeks starting
+        Monday in the stats timezone. Day buckets use date arithmetic, so DST
+        transitions cannot drift the boundaries."""
+        monday0 = self._stat_local_date(self.clock())
+        monday0 -= timedelta(days=monday0.weekday())
+        first = monday0 - timedelta(days=(weeks - 1) * 7)
+        days = [first + timedelta(days=i) for i in range(weeks * 7)]
+        buckets = {d.isoformat(): 0 for d in days}
+        points = self._play_points()
+        for (a0, t0), (a1, t1) in zip(points, points[1:]):
+            delta = max(0, t1 - t0)
+            if not delta:
+                continue
+            k = self._stat_local_date(a1).isoformat()
+            if k in buckets:
+                buckets[k] += delta
+        return days, buckets
 
     def plays_by_week(self, weeks=8):
         """Plays recorded per week, from saved library snapshots.
@@ -205,45 +262,25 @@ class Collector:
         recorded plays between consecutive snapshots is attributed to the
         week of the later snapshot. Negative deltas (table removed) count as
         zero. History starts with this dashboard's first sync and is kept
-        for the retention window, so early weeks fill in over time.
+        for the retention window, so early weeks fill in over time. Weeks
+        start on Mondays in the stats timezone (VPIN_TZ, or the server clock).
         """
-        points = self._play_points()
-        def week_key(ts):
-            lt = time.localtime(ts)
-            monday = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday, 12, 0, 0, 0, 0, -1))
-            return time.strftime('%Y-%m-%d', time.localtime(monday))
-        monday_of = self._monday_of
-        now = self.clock()
-        first = monday_of(now) - (weeks - 1) * 604800
-        keys = [week_key(first + i * 604800) for i in range(weeks)]
-        buckets = {k: 0 for k in keys}
-        for (a0, t0), (a1, t1) in zip(points, points[1:]):
-            delta = max(0, t1 - t0)
-            if not delta:
-                continue
-            k = week_key(a1)
-            if k in buckets:
-                buckets[k] += delta
-        return [{'week': time.strftime('%b %-d', time.strptime(k, '%Y-%m-%d')), 'plays': buckets[k]} for k in keys]
+        days, buckets = self._play_days(weeks)
+        out = []
+        for i in range(weeks):
+            monday = days[i * 7]
+            total = sum(buckets[(monday + timedelta(days=j)).isoformat()] for j in range(7))
+            out.append({'week': monday.strftime('%b ') + str(monday.day), 'plays': total})
+        return out
 
     def plays_by_day(self, weeks=13):
         """Plays recorded per day, same snapshot deltas as plays_by_week,
         attributed to the day of the later snapshot. Returns whole weeks
-        starting on a Monday so the heatmap grid aligns. Date-string keys
-        keep DST transitions from drifting the day buckets."""
-        points = self._play_points()
-        first = self._monday_of(self.clock()) - (weeks - 1) * 604800
-        lt = time.localtime(first)
-        keys = [time.strftime('%Y-%m-%d', time.localtime(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + i, 12, 0, 0, 0, 0, -1)))) for i in range(weeks * 7)]
-        buckets = {k: 0 for k in keys}
-        for (a0, t0), (a1, t1) in zip(points, points[1:]):
-            delta = max(0, t1 - t0)
-            if not delta:
-                continue
-            k = time.strftime('%Y-%m-%d', time.localtime(a1))
-            if k in buckets:
-                buckets[k] += delta
-        return [{'date': k, 'plays': buckets[k]} for k in keys]
+        starting on a Monday so the heatmap grid aligns. Days are calendar
+        days in the stats timezone (VPIN_TZ, or the server clock), so evening
+        plays land on the local day instead of tomorrow in UTC."""
+        days, buckets = self._play_days(weeks)
+        return [{'date': d.isoformat(), 'plays': buckets[d.isoformat()]} for d in days]
 
     def library(self, refresh=False):
         if refresh:

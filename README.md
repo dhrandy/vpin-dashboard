@@ -96,8 +96,11 @@ services:
       # a video, so nothing else is needed for the pictures.
       # The app files come from the public dhrandy/vpin-dashboard
       # repo, which clones with no token or sign-in.
+      # VPIN_TZ is the timezone for the play stats day and week
+      # buckets (IANA name). Leave unset to use the server clock.
       VPIN_BRIDGE_URL: ${VPIN_BRIDGE_URL}
       VPIN_API_KEY: ${VPIN_API_KEY}
+      VPIN_TZ: ${VPIN_TZ}
       GIT_REPO: ${GIT_REPO}
       GIT_BRANCH: ${GIT_BRANCH}
       PORT: "8080"
@@ -162,6 +165,7 @@ Set these in your stack's Environment:
 
 - `VPIN_BRIDGE_URL`: your private vpin-bridge base address.
 - `VPIN_API_KEY`: the bridge's API key.
+- `VPIN_TZ`: timezone for the play stats day and week buckets, as an IANA timezone name. Leave unset to use the server clock (UTC on most base images). Containers without timezone data, such as slim base images, resolve only US Eastern through built-in rules; any other zone needs timezone data installed in the image.
 - `GIT_REPO`: this public repository's clone URL, or leave blank to use the built-in repository.
 - `GIT_BRANCH`: `main`, or leave blank to use `main`.
 
